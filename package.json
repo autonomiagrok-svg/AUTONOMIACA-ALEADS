@@ -1,0 +1,15 @@
+{
+  "name": "autonomia-systems-caca-leads",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Caça-leads B2B com dados públicos e prospecção de sistemas inteligentes para AutonomIA Systems",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node src/seed.js",
+    "seed:gv": "node src/seed_map_gv.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

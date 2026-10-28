@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AutonomIA Systems — Caça Leads</title>
+  <meta name="theme-color" content="#0b132b" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-logo" src="/logo-autonomia.png" alt="AutonomIA Systems" />
+        <strong>AutonomIA Systems</strong>
+        <span>Sistemas Inteligentes · Caça Leads</span>
+      </div>
+      <div class="profile-box">
+        <label for="operatorProfile" class="profile-label">👤 Operador Ativo:</label>
+        <select id="operatorProfile" class="profile-select">
+          <option value="Rafael Oliveira">Rafael Oliveira</option>
+          <option value="Sara Rosseto">Sara Rosseto</option>
+        </select>
+        <span class="profile-badge" id="profileBadge">Especialista em Sistemas</span>
+      </div>
+      <nav>
+        <button class="nav active" data-view="dashboard">Painel</button>
+        <button class="nav" data-view="leads">Leads</button>
+        <button class="nav" data-view="motor">⚡ Motor de Busca</button>
+        <button class="nav" data-view="pipeline">Pipeline</button>
+        <button class="nav" data-view="agenda">Follow-ups</button>
+        <button class="nav" data-view="templates">💬 Mensagens & Scripts</button>
+        <button class="nav" data-view="novo">Novo lead</button>
+        <button class="nav" data-view="pesquisa">Pesquisa & fontes</button>
+      </nav>
+      <div class="side-foot">
+        <p>Inteligência comercial e automação de processos B2B.</p>
+        <button class="btn block" id="importCsvButton" type="button">Importar CSV</button>
+        <input id="importCsvFile" type="file" accept=".csv,text/csv" hidden />
+        <a class="btn block" href="/api/export.csv">Exportar CSV</a>
+      </div>
+    </aside>
+    <main>
+      <header class="top">
+        <div>
+          <h1 id="title">Painel</h1>
+          <p class="muted" id="subtitle">AutonomIA Systems · Sistemas Inteligentes</p>
+        </div>
+        <div class="top-actions">
+          <div class="top-user-indicator">
+            <span class="pulse-dot"></span>
+            <span id="activeOperatorDisplay">Operando: <strong>Rafael Oliveira</strong></span>
+          </div>
+          <input id="search" class="search" placeholder="Buscar lead..." />
+        </div>
+      </header>
+      <div id="view" aria-live="polite"></div>
+    </main>
+  </div>
+  <div id="modal" class="modal hidden"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
