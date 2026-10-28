@@ -10,7 +10,7 @@ import {
 import { searchOpenStreetMap, generateCuratedPublicLeads } from './src/leads_engine.js';
 
 const PORT = Number(process.env.PORT || 3100);
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || '0.0.0.0';
 const publicDir = path.resolve(process.cwd(), 'public');
 
 const SEGMENTOS = [
