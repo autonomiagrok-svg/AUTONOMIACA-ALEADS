@@ -66,6 +66,7 @@ function toast(msg) {
 async function init() {
   META = await api('/api/meta');
   if (!Array.isArray(META.segmentos) || !Array.isArray(META.status)) throw new Error('Configuração inválida recebida do servidor');
+  await window.loadCustomLenses?.();
   
   const opSelect = $('#operatorProfile');
   if (opSelect) {
@@ -96,6 +97,7 @@ async function init() {
     if (event.key === 'Escape' && !$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden');
   });
   show('dashboard');
+  window.refreshAgendaBadge?.();
 }
 
 function parseCsv(text) {
@@ -187,7 +189,7 @@ async function commitImportPreview() {
   try {
     for (const items of splitBatches(pendingImportRows)) {
       const include = [...selected].filter((i) => i >= offset && i < offset + items.length).map((i) => i - offset);
-      const result = await api('/api/import', { method: 'POST', body: JSON.stringify({ items, include_indices: include, allow_duplicates: allowDuplicates }) });
+      const result = await api('/api/import', { method: 'POST', body: JSON.stringify({ items, include_indices: include, allow_duplicates: allowDuplicates, batch_prefix: 'CSV' }) });
       added += result.added; total = result.total; offset += items.length;
     }
     closeImportPreview(); toast(`${added} leads importados · ${total} na base`);
@@ -200,9 +202,11 @@ async function show(view) {
   const titles = {
     dashboard: ['Painel', 'Funil de conversão & diagnóstico — AutonomIA Systems'],
     leads: ['Leads', 'Qualificar, diagnosticar e apresentar sistemas inteligentes'],
-    motor: ['⚡ Motor de Busca de Leads', 'Prospecção ativa com filtros simultâneos e deduplicação automática'],
+    dialer: ['📞 Power Dialer (Fila Focada)', 'Prospecção 1-a-1 em alta cadência com copy dinâmica e micro-cadência'],
+    intelligence: ['🧠 Inteligência & Território', 'Lentes editáveis, auto-calibragem empírica, bolsões Oceano Azul e Lookalike'],
+    motor: ['⚡ Motor Google Maps (Fonte Única)', 'Captura completa de 1 segmento por vez com rolagem até o final da lista'],
     pipeline: ['Pipeline', 'Kanban do ciclo de consultoria e implantação'],
-    agenda: ['Follow-ups', 'Retornos estratégicos, diagnósticos e demonstrações'],
+    agenda: ['📅 Agenda do Dia', 'Cadência adaptativa, temperatura dos leads e Radar de Conversão'],
     templates: ['💬 Modelos de Mensagens & Scripts', 'Personalize e salve os scripts de abordagem dos operadores'],
     novo: ['Novo lead', 'Cadastro de empresas e mapeamento operacional'],
     pesquisa: ['Pesquisa & fontes', 'Fontes de inteligência de mercado — AutonomIA Systems'],
@@ -215,6 +219,8 @@ async function show(view) {
   try {
     if (view === 'dashboard') return await dashboard(v);
     if (view === 'leads') return await leads(v);
+    if (view === 'dialer') return await window.renderPowerDialerView(v);
+    if (view === 'intelligence') return await window.renderIntelligenceCockpit(v);
     if (view === 'motor') return await motorView(v);
     if (view === 'pipeline') return await pipeline(v);
     if (view === 'agenda') return await agenda(v);
@@ -264,15 +270,24 @@ async function dashboard(v) {
     </div>`;
 }
 
+let LAST_LOADED_LEADS = [];
+let LEAD_FILTERS = { status: '', segmento: '', cidade: '', whatsapp: '', verificacao: '', fonte: '', origem: '', dor: '', sort: 'score' };
+
+function syncLeadFiltersFromDom() {
+  if ($('#fStatus')) LEAD_FILTERS.status = $('#fStatus').value;
+  if ($('#fSeg')) LEAD_FILTERS.segmento = $('#fSeg').value;
+  if ($('#fCidade')) LEAD_FILTERS.cidade = $('#fCidade').value;
+  if ($('#fWhatsapp')) LEAD_FILTERS.whatsapp = $('#fWhatsapp').value;
+  if ($('#fVerificacao')) LEAD_FILTERS.verificacao = $('#fVerificacao').value;
+  if ($('#fFonte')) LEAD_FILTERS.fonte = $('#fFonte').value;
+  if ($('#fOrigem')) LEAD_FILTERS.origem = $('#fOrigem').value;
+  if ($('#fDor')) LEAD_FILTERS.dor = $('#fDor').value;
+  if ($('#fSort')) LEAD_FILTERS.sort = $('#fSort').value;
+}
+
 async function leads(v) {
   const q = $('#search')?.value || '';
-  const status = $('#fStatus')?.value || '';
-  const segmento = $('#fSeg')?.value || '';
-  const cidade = $('#fCidade')?.value || '';
-  const whatsapp = $('#fWhatsapp')?.value || '';
-  const verificacao = $('#fVerificacao')?.value || '';
-  const fonte = $('#fFonte')?.value || '';
-  const sort = $('#fSort')?.value || 'score';
+  const { status, segmento, cidade, whatsapp, verificacao, fonte, origem, dor, sort } = LEAD_FILTERS;
   const params = new URLSearchParams();
   if (q) params.set('q', q);
   if (status) params.set('status', status);
@@ -281,16 +296,63 @@ async function leads(v) {
   if (whatsapp) params.set('whatsapp', whatsapp);
   if (verificacao) params.set('verificacao', verificacao);
   if (fonte) params.set('fonte', fonte);
+  if (origem) params.set('origem', origem);
   if (sort) params.set('sort', sort);
   const data = await api('/api/leads?' + params.toString());
-  const total = data.items.length;
+  LAST_LOADED_LEADS = data.items || [];
+  renderLeadsView(v, { ...LEAD_FILTERS });
+}
+
+function renderLeadsView(v, filterState) {
+  const { status, segmento, cidade, whatsapp, verificacao, fonte, origem, dor, sort } = filterState;
+  const activeLensOrMode = window.getActiveLensOrMode?.() || window.getActiveScoringMode?.() || 'equilibrado';
+  const evalMap = new Map();
+
+  let evaluated = LAST_LOADED_LEADS.map((lead) => {
+    const ev = window.ScoringModes?.evaluateLead(lead, activeLensOrMode) || {
+      score: lead.score || 50,
+      potencial: lead.potencial || 'MEDIO',
+      motivo_destaque: '',
+      etiquetas_dor: lead.etiquetas_dor || [],
+      breakdown: [],
+    };
+    evalMap.set(lead.id, ev);
+    return { lead, ev };
+  });
+
+  if (dor) {
+    evaluated = evaluated.filter(({ ev }) => Array.isArray(ev.etiquetas_dor) && ev.etiquetas_dor.includes(dor));
+  }
+
+  if (sort === 'score') {
+    evaluated.sort((a, b) => b.ev.score - a.ev.score);
+  }
+
+  const total = evaluated.length;
   const pageCount = Math.max(1, Math.ceil(total / LEAD_PAGE_SIZE));
   LEAD_PAGE = Math.min(LEAD_PAGE, pageCount);
-  const pageItems = data.items.slice((LEAD_PAGE - 1) * LEAD_PAGE_SIZE, LEAD_PAGE * LEAD_PAGE_SIZE);
+  const pageEntries = evaluated.slice((LEAD_PAGE - 1) * LEAD_PAGE_SIZE, LEAD_PAGE * LEAD_PAGE_SIZE);
+  const visibleIds = pageEntries.map((e) => e.lead.id);
+
+  const standardDores = ['Sem Site', 'Site Fora do Ar', 'Sem HTTPS', 'Site sem WhatsApp', 'Sem Tráfego Rastreado', 'Só Telefone Fixo', 'Empresa Recente', 'CNPJ Inativo'];
+  const allDores = [...new Set([...(META.dores || []), ...standardDores])];
+
   v.innerHTML = `
+    ${window.renderClassifierModeBar?.(visibleIds) || ''}
     <div class="filters">
       <select id="fStatus" onchange="resetLeadPage()"><option value="">Todos status</option>${META.status.map((s) => `<option value="${s}" ${status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
       <select id="fSeg" onchange="resetLeadPage()"><option value="">Todos segmentos</option>${META.segmentos.map((s) => `<option value="${s}" ${segmento === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      <select id="fOrigem" onchange="resetLeadPage()">
+        <option value="">Todas origens</option>
+        <option value="MAPS" ${origem === 'MAPS' ? 'selected' : ''}>Google Maps</option>
+        <option value="OSM" ${origem === 'OSM' ? 'selected' : ''}>OpenStreetMap</option>
+        <option value="CSV" ${origem === 'CSV' ? 'selected' : ''}>CSV</option>
+        <option value="MANUAL" ${origem === 'MANUAL' ? 'selected' : ''}>Manual</option>
+      </select>
+      <select id="fDor" onchange="resetLeadPage()">
+        <option value="">Todas dores</option>
+        ${allDores.map((d) => `<option value="${esc(d)}" ${dor === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}
+      </select>
       <select id="fCidade" onchange="resetLeadPage()"><option value="">Todas cidades</option>${(META.cidades || ['Governador Valadares']).map((c) => `<option value="${esc(c)}" ${cidade === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
       <select id="fWhatsapp" onchange="resetLeadPage()"><option value="">WhatsApp: todos</option><option value="1" ${whatsapp === '1' ? 'selected' : ''}>Com número de WhatsApp</option><option value="0" ${whatsapp === '0' ? 'selected' : ''}>Sem WhatsApp ou inválido</option></select>
       <select id="fVerificacao" onchange="resetLeadPage()"><option value="">Verificação: todas</option>${(META.whatsapp_status || []).map((s) => `<option value="${s}" ${verificacao === s ? 'selected' : ''}>${s.replaceAll('_',' ')}</option>`).join('')}</select>
@@ -300,21 +362,29 @@ async function leads(v) {
     </div>
     <div class="panel tablewrap">
       <table>
-        <thead><tr><th>Lead</th><th>Segmento</th><th>Cidade</th><th>Bairro</th><th>Contato</th><th>WhatsApp</th><th>Potencial</th><th>Status</th><th>Score</th><th></th></tr></thead>
+        <thead><tr><th>Lead / Origem / Dores</th><th>Segmento</th><th>Cidade / Bairro</th><th>Contato</th><th>WhatsApp</th><th>Potencial</th><th>Status</th><th>Score</th><th></th></tr></thead>
         <tbody>
-          ${pageItems.map((x) => `
-            <tr>
-              <td><strong>${esc(x.nome_fantasia)}</strong><br><span class="muted">${esc(x.razao_social || x.cnpj || x.fonte || '')}</span></td>
+          ${pageEntries.map(({ lead: x, ev }) => `
+            <tr title="${esc(ev.motivo_destaque || '')}">
+              <td>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                  <strong>${esc(x.nome_fantasia)}</strong>
+                  ${window.renderOriginBadge?.(x) || ''}
+                </div>
+                <div class="muted" style="font-size:12px">${esc(ev.motivo_destaque || x.razao_social || x.cnpj || x.fonte || '')}</div>
+                <div>${window.renderPainBadges?.(ev.etiquetas_dor) || ''}</div>
+              </td>
               <td>${esc(x.segmento)}</td>
-              <td>${esc(x.cidade || 'Governador Valadares')}</td>
-              <td>${esc(x.bairro || '—')}</td>
+              <td>${esc(x.cidade || 'Governador Valadares')}<br><span class="muted">${esc(x.bairro || '—')}</span></td>
               <td>${esc(x.telefone || x.whatsapp || '—')}</td>
               <td>${esc(x.whatsapp || '—')}<br><span class="badge">${esc((x.whatsapp_status || (x.whatsapp ? 'NAO_VERIFICADO' : 'SEM WHATSAPP')).replaceAll('_',' '))}</span></td>
-              <td><span class="badge ${esc(x.potencial)}">${esc(x.potencial)}</span></td>
+              <td><span class="badge ${esc(ev.potencial)}">${esc(ev.potencial)}</span></td>
               <td><span class="badge ${esc(x.status)}">${esc(x.status)}</span></td>
-              <td><strong>${x.score}</strong></td>
+              <td title="${esc(window.formatBreakdownTooltip?.(ev.breakdown) || '')}" style="cursor:help">
+                <strong style="border-bottom:1px dotted var(--cyan)">${ev.score}</strong>
+              </td>
               <td><button class="btn" onclick="openLead('${x.id}')">Abrir</button></td>
-            </tr>`).join('') || '<tr><td colspan="10">Nenhum lead corresponde a esses filtros.</td></tr>'}
+            </tr>`).join('') || '<tr><td colspan="9">Nenhum lead corresponde a esses filtros.</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -326,6 +396,19 @@ async function leads(v) {
         <button class="btn" onclick="changeLeadPage(1)" ${LEAD_PAGE >= pageCount ? 'disabled' : ''}>Próxima</button>
       </div>
     </div>`;
+
+  window.bindClassifierBarEvents?.(
+    () => {
+      LEAD_PAGE = 1;
+      renderLeadsView(v, filterState);
+    },
+    visibleIds,
+    (updatedItems) => {
+      const byId = new Map(updatedItems.map((it) => [it.id, it]));
+      LAST_LOADED_LEADS = LAST_LOADED_LEADS.map((it) => byId.get(it.id) || it);
+      renderLeadsView(v, filterState);
+    }
+  );
 }
 
 function changeLeadPage(offset) {
@@ -334,6 +417,7 @@ function changeLeadPage(offset) {
 }
 
 function resetLeadPage() {
+  syncLeadFiltersFromDom();
   LEAD_PAGE = 1;
   show('leads');
 }
@@ -348,7 +432,10 @@ async function pipeline(v) {
       <h4>${esc(st)} <span class="badge">${items.length}</span></h4>
       ${items.slice(0, 40).map((x) => `
         <div class="kanban-card" onclick="openLead('${x.id}')">
-          <strong>${esc(x.nome_fantasia)}</strong>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:4px">
+            <strong>${esc(x.nome_fantasia)}</strong>
+            ${window.renderOriginBadge?.(x) || ''}
+          </div>
           <div class="muted">${esc(x.segmento)} · ${esc(x.cidade || 'GV')}</div>
           <div class="muted">${esc(x.telefone || x.whatsapp || 'sem tel')}</div>
           <span class="badge ${esc(x.potencial)}">${esc(x.potencial)}</span>
@@ -360,6 +447,9 @@ async function pipeline(v) {
 }
 
 async function agenda(v) {
+  if (typeof window.renderAgendaCockpit === 'function') {
+    return await window.renderAgendaCockpit(v);
+  }
   const [late, today, week] = await Promise.all([
     api('/api/followups?period=atrasado'), api('/api/followups?period=hoje'), api('/api/followups?period=semana'),
   ]);
@@ -414,209 +504,11 @@ function novo(v) {
   };
 }
 
-let MOTOR_RESULTS = [];
-
 async function motorView(v) {
-  const segmentos = META.segmentos || ['RESTAURANTE', 'BAR', 'LANCHONETE', 'PADARIA', 'MERCADO', 'ADEGA', 'HOTEL', 'EVENTOS', 'SUPERMERCADO', 'OUTRO'];
-
-  v.innerHTML = `
-    <div class="panel">
-      <h3 style="margin-top:0">Configuração do Motor de Busca de Leads</h3>
-      <p class="muted">Pesquise empresas automaticamente combinando múltiplos critérios simultâneos. A deduplicação automática protege sua base contra duplicatas por CNPJ, Telefone e Nome.</p>
-      
-      <form id="motorForm" class="form" style="margin-top:14px">
-        <div class="field">
-          <label>📍 Cidade / Município</label>
-          <input name="cidade" id="motorCidade" value="Governador Valadares" required placeholder="Ex.: Governador Valadares" />
-        </div>
-        <div class="field">
-          <label>🗺️ Estado (UF)</label>
-          <input name="uf" id="motorUf" value="MG" required placeholder="Ex.: MG" style="max-width:120px" />
-        </div>
-        <div class="field">
-          <label>🏢 Segmento Alvo</label>
-          <select name="segmento" id="motorSegmento">
-            ${segmentos.map((s) => `<option value="${s}" ${s === 'RESTAURANTE' ? 'selected' : ''}>${s}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field">
-          <label>📦 Tamanho do Lote de Busca</label>
-          <select name="batch_size" id="motorBatch">
-            <option value="10">10 leads por busca</option>
-            <option value="30" selected>30 leads por busca</option>
-            <option value="50">50 leads por busca</option>
-          </select>
-        </div>
-        <div class="field full" style="display:flex;gap:20px;flex-wrap:wrap;background:var(--card);padding:12px;border-radius:10px;border:1px solid var(--border)">
-          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
-            <input type="checkbox" id="motorReqWa" name="req_whatsapp" checked />
-            💬 Apenas leads com WhatsApp
-          </label>
-          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
-            <input type="checkbox" id="motorReqTel" name="req_telefone" checked />
-            📞 Apenas leads com Telefone (Fixo ou Celular)
-          </label>
-          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:var(--cyan);font-weight:600">
-            <input type="checkbox" id="motorAutoDedup" checked disabled />
-            🛡️ Deduplicação Automática Ativa
-          </label>
-        </div>
-        <div class="actions full" style="margin-top:6px">
-          <button type="submit" class="btn primary" id="btnBuscarLeads">🚀 Executar Busca de Novos Leads</button>
-        </div>
-      </form>
-    </div>
-
-    <div id="motorResultsContainer">
-      ${renderMotorResultsHtml(MOTOR_RESULTS)}
-    </div>
-  `;
-
-  $('#motorForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const btn = $('#btnBuscarLeads');
-    btn.disabled = true;
-    btn.textContent = '⏳ Minerando e deduplicando leads...';
-
-    const payload = {
-      cidade: $('#motorCidade').value.trim(),
-      uf: $('#motorUf').value.trim(),
-      segmento: $('#motorSegmento').value,
-      batch_size: Number($('#motorBatch').value),
-      req_whatsapp: $('#motorReqWa').checked,
-      req_telefone: $('#motorReqTel').checked
-    };
-
-    try {
-      const res = await api('/api/motor/search', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-      MOTOR_RESULTS = res.items || [];
-      $('#motorResultsContainer').innerHTML = renderMotorResultsHtml(MOTOR_RESULTS);
-      toast(`Busca concluída: ${res.novos} novos leads encontrados!`);
-    } catch (err) {
-      toast('Erro na busca: ' + err.message);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '🚀 Executar Busca de Novos Leads';
-    }
-  };
-}
-
-function renderMotorResultsHtml(items) {
-  if (!items || !items.length) {
-    return `
-      <div class="panel" style="text-align:center;padding:30px">
-        <p class="muted">Nenhuma busca executada ainda. Configure os filtros acima e clique em <strong>Executar Busca</strong> para encontrar leads.</p>
-      </div>`;
+  if (typeof window.renderMapsMotorView === 'function') {
+    return await window.renderMapsMotorView(v);
   }
-
-  const novos = items.filter((x) => x.state === 'new').length;
-  const duplicados = items.filter((x) => x.state === 'duplicate').length;
-
-  return `
-    <div class="panel">
-      <div class="actions" style="justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div>
-          <h3 style="margin:0">Resultados da Busca (${items.length} leads processados)</h3>
-          <p class="muted" style="margin:4px 0 0">
-            <span class="badge QUALIFICADO" style="margin-right:6px">✨ ${novos} Novos</span>
-            <span class="badge DESCARTADO">🛡️ ${duplicados} Duplicados detectados</span>
-          </p>
-        </div>
-        <div class="actions" style="margin:0">
-          <button class="btn" onclick="toggleMotorSelection(true)">Selecionar todos</button>
-          <button class="btn" onclick="toggleMotorSelection(false)">Desmarcar todos</button>
-        </div>
-      </div>
-
-      <div class="tablewrap" style="max-height:55vh;overflow:auto">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:40px">Adicionar?</th>
-              <th>Nome Fantasia</th>
-              <th>Segmento</th>
-              <th>Localização</th>
-              <th>WhatsApp / Tel</th>
-              <th>Status de Deduplicação</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.map((x, idx) => `
-              <tr style="${x.state === 'duplicate' ? 'opacity:0.65;' : ''}">
-                <td>
-                  <input type="checkbox" class="motor-item-check" data-index="${idx}" ${x.state === 'new' ? 'checked' : ''} />
-                </td>
-                <td>
-                  <strong>${esc(x.item?.nome_fantasia || '—')}</strong>
-                  ${x.item?.website ? `<br><a href="${esc(x.item.website)}" target="_blank" rel="noopener noreferrer" style="color:var(--cyan);font-size:11px">🌐 ${esc(x.item.website)}</a>` : ''}
-                </td>
-                <td>${esc(x.item?.segmento || '—')}</td>
-                <td>${esc(x.item?.bairro || 'Centro')}, ${esc(x.item?.cidade || '')}</td>
-                <td>
-                  ${x.item?.whatsapp ? `<div>💬 ${esc(x.item.whatsapp)}</div>` : ''}
-                  ${x.item?.telefone && x.item.telefone !== x.item.whatsapp ? `<div>📞 ${esc(x.item.telefone)}</div>` : ''}
-                  ${!x.item?.whatsapp && !x.item?.telefone ? '<span class="muted">Sem contato</span>' : ''}
-                </td>
-                <td>
-                  <span class="badge ${x.state === 'new' ? 'QUALIFICADO' : 'DESCARTADO'}">
-                    ${x.state === 'new' ? 'Pronto para Adicionar' : 'Duplicado na Base'}
-                  </span>
-                  ${x.matches?.length ? `<div class="muted" style="font-size:11px;margin-top:3px">Já existe: ${esc(x.matches[0].nome_fantasia)}</div>` : ''}
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="actions" style="margin-top:16px;background:var(--card);padding:14px;border-radius:12px;border:1px solid var(--border);justify-content:space-between;align-items:center">
-        <div>
-          <strong id="motorSelectedCount">Deseja adicionar os novos leads à operação?</strong>
-          <p class="muted" style="margin:2px 0 0">Você pode desmarcar qualquer estabelecimento que não queira adicionar.</p>
-        </div>
-        <button class="btn primary" style="font-size:14px;padding:10px 20px" onclick="confirmAddMotorLeads()">
-          📥 Adicionar Leads Selecionados Automaticamente
-        </button>
-      </div>
-    </div>
-  `;
-}
-
-function toggleMotorSelection(checked) {
-  $$('.motor-item-check').forEach((chk) => {
-    chk.checked = checked;
-  });
-}
-
-async function confirmAddMotorLeads() {
-  const checkboxes = $$('.motor-item-check:checked');
-  if (!checkboxes.length) {
-    return toast('Selecione pelo menos um lead para adicionar.');
-  }
-
-  const selectedIndices = checkboxes.map((c) => Number(c.dataset.index));
-  const toAdd = selectedIndices.map((i) => MOTOR_RESULTS[i]?.item).filter(Boolean);
-
-  if (!confirm(`Deseja adicionar ${toAdd.length} lead(s) selecionado(s) à sua base de prospecção da AutonomIA Systems?`)) {
-    return;
-  }
-
-  try {
-    const res = await api('/api/import', {
-      method: 'POST',
-      body: JSON.stringify({ items: toAdd, allow_duplicates: false })
-    });
-
-    toast(`Sucesso! ${res.added} novos leads adicionados automaticamente!`);
-    MOTOR_RESULTS = [];
-    $$('.nav').forEach((x) => x.classList.toggle('active', x.dataset.view === 'leads'));
-    show('leads');
-  } catch (err) {
-    toast('Erro ao adicionar leads: ' + err.message);
-  }
+  v.innerHTML = '<div class="panel"><p class="muted">Carregando módulo Google Maps...</p></div>';
 }
 
 function templatesView(v) {
@@ -739,9 +631,12 @@ function phoneDigits(t) {
 }
 
 function waLink(num, text) {
+  if (window.Hygiene?.buildWhatsAppLink) {
+    return window.Hygiene.buildWhatsAppLink(num, text);
+  }
   const d = phoneDigits(num);
   if (!d) return null;
-  const n = d.startsWith('55') ? d : '55' + d;
+  const n = d.startsWith('55') && (d.length === 12 || d.length === 13) ? d : '55' + d;
   return 'https://wa.me/' + n + (text ? '?text=' + encodeURIComponent(text) : '');
 }
 
@@ -816,12 +711,27 @@ async function openLead(id) {
   const stage = defaultTemplate(x.status);
   const wa = x.whatsapp && x.whatsapp_status !== 'INVALIDO' ? waLink(x.whatsapp, msgTemplate(x, stage)) : null;
   const isCliente = x.status === 'CLIENTE';
+  const activeLensOrMode = window.getActiveLensOrMode?.() || window.getActiveScoringMode?.() || 'equilibrado';
+  const evalRes = window.ScoringModes?.evaluateLead(x, activeLensOrMode) || { score: x.score, mode_label: 'Equilibrado', etiquetas_dor: x.etiquetas_dor || [], motivo_destaque: '', breakdown: [] };
+  const matrixRes = window.ValueMatrix?.evaluateValueMatrix?.(x) || null;
+  const auditInfo = x.diagnostico_fatos?.website_audit || null;
+  const stackTags = Array.isArray(auditInfo?.stack_detectada) ? auditInfo.stack_detectada : [];
+  const socios = Array.isArray(x.socios) && x.socios.length ? x.socios : (x.diagnostico_fatos?.cnpj_info?.socios || []);
   m.innerHTML = `
     <div class="modal-box" tabindex="-1" aria-labelledby="leadModalTitle" style="max-width:720px">
       <div class="actions" style="justify-content:space-between;align-items:flex-start">
         <div>
-          <h2 id="leadModalTitle" style="margin:0">${esc(x.nome_fantasia)}</h2>
-          <p class="muted" style="margin:4px 0 0">${esc(x.segmento)} · Score ${x.score} · <span class="badge ${esc(x.status)}">${esc(x.status)}</span></p>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <h2 id="leadModalTitle" style="margin:0">${esc(x.nome_fantasia)}</h2>
+            ${window.renderOriginBadge?.(x) || ''}
+            ${matrixRes ? `<span class="badge ${matrixRes.quadrante === 'OURO' ? 'ALTO' : ''}" title="${esc(matrixRes.quadrante_titulo)}">${esc(matrixRes.quadrante_label)} (Caixa ${matrixRes.caixa_score} · Brecha ${matrixRes.brecha_score})</span>` : ''}
+          </div>
+          <p class="muted" style="margin:4px 0 0">${esc(x.segmento)} · Score ${evalRes.score} (${esc(evalRes.mode_label || activeLensOrMode)}) · <span class="badge ${esc(x.status)}">${esc(x.status)}</span></p>
+          ${evalRes.motivo_destaque ? `<p class="muted" style="margin:4px 0 0;color:var(--cyan)">${esc(evalRes.motivo_destaque)}</p>` : ''}
+          ${evalRes.breakdown?.length ? `<div style="margin-top:6px">${window.renderBreakdownChips?.(evalRes.breakdown) || ''}</div>` : ''}
+          ${(stackTags.length || auditInfo?.ttfb_ms != null) ? `<p class="muted" style="margin:4px 0 0">🔧 Stack: ${stackTags.map((s) => `<span class="badge">${esc(s)}</span>`).join(' ') || '—'}${auditInfo?.ttfb_ms != null ? ` · ⚡ TTFB ${auditInfo.ttfb_ms}ms` : ''}</p>` : ''}
+          <div style="margin-top:4px">${window.renderPainBadges?.(evalRes.etiquetas_dor) || ''}</div>
+          ${socios.length ? `<p class="muted" style="margin:4px 0 0">👥 Sócios: <strong>${esc(socios.join(', '))}</strong></p>` : ''}
         </div>
         <button class="btn" onclick="$('#modal').classList.add('hidden')">Fechar</button>
       </div>
@@ -830,6 +740,8 @@ async function openLead(id) {
         ${tel ? `<a class="btn primary" href="tel:${esc(phoneDigits(tel))}" onclick="logRascunho('${x.id}','ligacao')">📞 Ligar</a>` : '<span class="btn" style="opacity:.5">Sem telefone</span>'}
         ${wa ? `<button class="btn good" onclick="openWhatsAppDraft('${x.id}')">💬 Abrir rascunho no WhatsApp</button>` : '<span class="muted">Sem WhatsApp disponível/verificado.</span>'}
         ${x.email ? `<a class="btn" href="mailto:${esc(x.email)}?subject=${encodeURIComponent('AutonomIA Systems — Contato Consultivo')}&body=${encodeURIComponent(msgTemplate(x, stage))}" onclick="logRascunho('${x.id}','email')">✉️ E-mail</a>` : ''}
+        <button class="btn" id="btnDiagnoseSingle" onclick="diagnoseSingleLead('${x.id}')">🔬 Diagnosticar Lead</button>
+        <button class="btn" style="border-color:var(--cyan);color:var(--cyan)" onclick="openLookalikeForLead('${x.id}')">🎯 Encontrar Parecidos (Lookalike)</button>
         <button class="btn" style="background:#1e3152;color:#fff;border:1px solid var(--border)" onclick="registrarContato('${x.id}','whatsapp')">${isCliente ? 'Registrar contato' : 'Marcar contato como enviado'}</button>
         ${!isCliente ? `<button class="btn good" onclick="converterLead('${x.id}')">✅ Tornar cliente</button>` : '<span class="badge CLIENTE">Já é cliente</span>'}
       </div>
@@ -867,7 +779,7 @@ async function openLead(id) {
         <div class="field"><label>Cidade</label><input id="edCidade" value="${esc(x.cidade || '')}" /></div>
         <div class="field"><label>Fonte</label><input id="edFonte" value="${esc(x.fonte || '')}" /></div>
         <div class="field"><label>URL da fonte</label><input id="edFonteUrl" value="${esc(x.fonte_url || '')}" /></div>
-        <div class="field"><label>Tipo da fonte</label><select id="edFonteTipo"><option value="OFICIAL" ${x.fonte_tipo === 'OFICIAL' ? 'selected' : ''}>Site/perfil oficial</option><option value="DIRETORIO" ${x.fonte_tipo === 'DIRETORIO' ? 'selected' : ''}>Diretório</option><option value="CADASTRO_PUBLICO" ${x.fonte_tipo === 'CADASTRO_PUBLICO' ? 'selected' : ''}>Cadastro público</option><option value="MANUAL" ${x.fonte_tipo === 'MANUAL' ? 'selected' : ''}>Manual</option></select></div>
+        <div class="field"><label>Tipo da fonte</label><select id="edFonteTipo"><option value="MAPS" ${x.fonte_tipo === 'MAPS' ? 'selected' : ''}>Google Maps</option><option value="OFICIAL" ${x.fonte_tipo === 'OFICIAL' ? 'selected' : ''}>Site/perfil oficial</option><option value="DIRETORIO" ${x.fonte_tipo === 'DIRETORIO' ? 'selected' : ''}>Diretório</option><option value="CADASTRO_PUBLICO" ${x.fonte_tipo === 'CADASTRO_PUBLICO' ? 'selected' : ''}>Cadastro público</option><option value="MANUAL" ${x.fonte_tipo === 'MANUAL' ? 'selected' : ''}>Manual</option></select></div>
         <div class="field"><label>Última verificação</label><input id="edVerified" type="date" value="${esc((x.verificado_em || '').slice(0,10))}" /></div>
         <div class="field full"><label>Observações</label><textarea id="edObs" rows="2">${esc(x.observacoes || '')}</textarea></div>
         <div class="field"><label>Próximo contato</label><input id="edFollow" type="date" value="${esc((x.proximo_contato || '').slice(0,10))}" /></div>
@@ -1074,7 +986,9 @@ async function delLead(id) {
   show('leads');
 }
 
-init().catch((e) => {
-  console.error(e);
-  $('#view').innerHTML = `<div class="panel"><p>Erro ao iniciar: ${esc(e.message)}</p></div>`;
+window.addEventListener('DOMContentLoaded', () => {
+  init().catch((e) => {
+    console.error(e);
+    $('#view').innerHTML = `<div class="panel"><p>Erro ao iniciar: ${esc(e.message)}</p></div>`;
+  });
 });

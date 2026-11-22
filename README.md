@@ -1,53 +1,63 @@
-# Xiquim Vargas Caça Leads
+# AutonomIA Systems — Caça Leads B2B
 
-Aplicação local para cadastrar e organizar estabelecimentos comerciais a partir de fontes públicas. Não foi projetada para armazenar dados pessoais de consumidores nem para envio automático de mensagens.
+Plataforma de inteligência comercial, captação ativa no Google Maps, qualificação técnica automatizada e prospecção de alta cadência para a **AutonomIA Systems**.
 
-## Executar
+---
 
-Requer Node.js 20 ou superior; não há dependências npm para instalar.
+## 1. Arquitetura Zero-Dependências
 
-```powershell
-cd caca-leads
+- **Runtime:** Node.js `>= 20` (100% ESM nativo: `node:http`, `fetch`, `node:test`, `node:assert/strict`) — **zero `npm install`**.
+- **Frontend:** HTML5 + CSS3 + Vanilla JS modularizado, compartilhando regras puras com o backend via `/shared/...`.
+- **Extensão de Captura:** Chrome / Edge **Manifest V3** (`extension/`) com HUD flutuante, rolagem exaustiva até o fim do feed e streaming em tempo real.
+- **Armazenamento de Escala:** Snapshot JSON (`data/leads.json`) + **Write-Ahead Log NDJSON** (`data/leads.wal.ndjson` via `WalJsonAdapter`) + **Índices Secundários O(1) em RAM** (`LeadIndex` para deduplicação instantânea por URL, CNPJ, telefone, domínio e nome+cidade).
+
+---
+
+## 2. Os 5 Pilares Operacionais
+
+1. **ENCONTRAR (`⚡ Motor de Busca` + `extension/`):**
+   - **Fonte Única Ativa — Google Maps:** Selecione **1 segmento por vez** (ou digite um **Termo Livre**) e inicie a missão. A extensão abre o Maps, executa a **Fase 1 (Rolagem Obrigatória até o Final da Lista)** e a **Fase 2 (Captura Profunda de 100% dos cards)** enviando lotes de 5 leads em streaming com telefone, site, endereço, bairro, nota e total de avaliações.
+   - **Entradas Auxiliares:** Importação de CSV com prévia/deduplicação e Cadastro Manual.
+2. **CLASSIFICAR (`src/classifier.js` + `src/scoring_modes.js` + `src/value_matrix.js`):**
+   - **Raio-X Digital de 2ª Geração (< 512 KB):** Detecta HTTPS, botão de WhatsApp no site, Meta Pixel, Google Tag/GTM, stack (`SHOPIFY`, `NUVEMSHOP`, `WOOCOMMERCE`, `WORDPRESS`, `WIX`, `RD_STATION`, `LINK_BIO`), viewport mobile, SEO básico, schema `LocalBusiness` e `ttfb_ms`.
+   - **Enriquecimento CNPJ (BrasilAPI):** Razão social, situação cadastral, capital social, data de abertura (`Empresa Recente <= 18m`) e quadro societário (`socios`).
+   - **4 Modos Nativos + Lentes Customizáveis (`data/lenses.json`) + Auto-Calibragem Bayesiana (`alpha = 5`)** com pontuação explicável (`breakdown`).
+   - **Matriz Dinheiro (Caixa) × Brecha (Dor):** Classifica cada lead em **💎 OURO**, **📈 EXPANSÃO**, **⚡ ENTRADA** ou **👀 OBSERVAÇÃO**.
+3. **TERRITÓRIO (`src/territory_engine.js`):**
+   - **Bolsões de Oceano Azul:** Agrupa `Cidade + Bairro + Segmento` destacando regiões com alta oportunidade digital e baixa penetração comercial.
+   - **Motor Lookalike ("Clones do Melhor Cliente"):** Similaridade determinística (0–100%) com Índice de Jaccard de dores para abordar vizinhos semelhantes com **Prova Social Hiper-Local**.
+4. **CONTACTAR (`📞 Power Dialer` + `src/copy_engine.js`):**
+   - Fila focada 1-a-1 com atalhos de teclado (`Enter` Abrir WhatsApp, `V` Girar Variação, `S` Pular, `I` Inválido).
+   - **Motor de Copy Dinâmica em 3 Blocos:** Abertura com prova real (sócio/nota/prova social local) + gancho cirúrgico da dor principal + CTA de baixa fricção, com **4 variações anti-repetição**.
+5. **MANTER (`📅 Agenda do Dia` + `src/cadence_engine.js` + `src/relationship_analytics.js`):**
+   - Termômetro de temperatura (`QUENTE`, `MORNO`, `ESFRIANDO`, `CONGELADO`), SLAs por estágio, **Valor em Risco (`priority_score`)**, máquina de estados por número de toque (incluindo recomendação de troca de canal no 3º toque e *break-up* elegante/hibernação +45d no 4º+) e **Radar de Conversão**.
+
+---
+
+## 3. Comandos Rápidos
+
+```bash
+# Iniciar o servidor local em http://127.0.0.1:3100
 npm start
+
+# Executar a suíte completa de testes unitários nativos
+npm test
 ```
 
-Abra `http://127.0.0.1:3100`. Por padrão, o servidor escuta somente no próprio computador. `PORT` e `HOST` podem ser definidos no ambiente. Não exponha o serviço em uma rede pública sem implementar autenticação e controles adicionais.
+---
 
-O armazenamento usado pelo servidor e pela interface é `data/leads.json`, gravado atomicamente. O arquivo `data/leads.db` e `src/db.js` são legado do protótipo SQLite e não são a fonte de dados da aplicação atual. Os scripts de seed atualizados gravam no mesmo JSON que a interface lê.
+## 4. Instalação da Extensão Chrome / Edge
 
-## Funcionalidades
+1. Abra `chrome://extensions` (ou `edge://extensions`) e ative o **Modo do desenvolvedor**.
+2. Clique em **Carregar sem compactação** e selecione a pasta `extension/` na raiz deste repositório.
+3. No painel (`http://127.0.0.1:3100`), acesse **⚡ Motor de Busca**, escolha 1 segmento e clique em **⚡ Iniciar Caça Completa no Google Maps**.
 
-- Painel com totais por status, segmento, cidade e conversão.
-- Busca nativa por nome, razão social, telefone/WhatsApp, CNPJ, e-mail, endereço, observações, fonte e tags; filtros por status, segmento, cidade, disponibilidade/validação de WhatsApp e fonte, com ordenação por score, nome, data, verificação ou retorno.
-- Pipeline comercial por estágio.
-- Cadastro, edição, exclusão e ficha de cada estabelecimento.
-- Registro de interações, contato confirmado, conversão em cliente e fila de follow-ups atrasados, de hoje e dos próximos sete dias.
-- Mensagens sugeridas e editáveis por etapa (primeiro contato, sem resposta, follow-up, catálogo, pós-visita, proposta, pós-venda e reativação). O WhatsApp abre com um rascunho; o funil só avança depois da confirmação manual do operador.
-- Importação CSV com prévia, identificação de registros potencialmente duplicados e seleção explícita; exportação CSV inclui contatos, origem, validação e follow-up.
-- Scripts opcionais `npm run seed` (lead de demonstração) e `node src/seed_map_gv.js` (base mapeada); ambos são idempotentes por nome e bairro.
+---
 
-## Rotas principais
+## 5. Segurança, Faxina Segura e Backups
 
-| Método | Rota | Uso |
-|---|---|---|
-| GET | `/api/health`, `/api/meta` | Estado e metadados |
-| GET | `/api/stats`, `/api/pipeline` | Indicadores |
-| GET | `/api/leads?q=&status=&segmento=&cidade=&whatsapp=&verificacao=&fonte=&sort=` | Busca, filtros e ordenação |
-| GET | `/api/followups?period=atrasado%7Choje%7Csemana` | Fila de retornos |
-| GET/POST/PUT/DELETE | `/api/leads/:id` | Consulta e manutenção |
-| POST | `/api/leads/:id/interacoes` | Registrar interação |
-| POST | `/api/leads/:id/contato` | Registrar contato e avançar funil |
-| POST | `/api/leads/:id/followup` | Agendar próximo contato |
-| POST | `/api/leads/:id/converter` | Converter para cliente |
-| POST | `/api/import` | Importar até 5.000 registros |
-| POST | `/api/import/preview` | Prévia e conferência de duplicatas |
-| GET | `/api/export.csv` | Exportar leads |
-
-Status aceitos: `NOVO`, `QUALIFICADO`, `CONTATADO`, `VISITA`, `PROPOSTA`, `CLIENTE` e `DESCARTADO`.
-
-## Notas de operação
-
-- A base enviada contém 1.000 registros. Confirme a fonte e a atualidade de cada registro antes de contatar o estabelecimento.
-- Cadastro, importação e exportação não verificam a veracidade dos dados nem enriquecem cadastros automaticamente.
-- Abrir ligação, e-mail ou rascunho do WhatsApp registra apenas que o canal foi iniciado; confirme o envio/contato na interface para avançar o funil.
-- O servidor não possui login; por isso, permanece vinculado a `127.0.0.1` por padrão.
+- Os arquivos `data/leads.json`, `data/*.wal.ndjson`, `data/lenses.json` e `data/backups/` são protegidos no `.gitignore`.
+- Em **🧠 Inteligência → ⚙️ Saúde do Motor & Escala**, você pode:
+  - Compactar o WAL manualmente (**🗜️ Compactar WAL**).
+  - Baixar um snapshot completo (**💾 Baixar Backup JSON** / `GET /api/system/backup`).
+  - Executar **🧹 Auditar & Limpar Base** (**Faxina Cirúrgica** ou **Reset Total**), que sempre grava um backup automático com timestamp em `data/backups/` antes de qualquer remoção.

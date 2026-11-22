@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "AutonomIA Caça Leads — Captura Google Maps",
+  "version": "1.0.0",
+  "description": "Captura assistida de estabelecimentos reais no Google Maps para o AutonomIA Caça Leads.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "https://www.google.com/maps/*",
+    "https://maps.google.com/*",
+    "http://127.0.0.1:3100/*",
+    "http://localhost:3100/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/maps/*",
+        "https://maps.google.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AutonomIA Caça Leads"
+  }
+}

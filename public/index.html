@@ -26,9 +26,11 @@
       <nav>
         <button class="nav active" data-view="dashboard">Painel</button>
         <button class="nav" data-view="leads">Leads</button>
+        <button class="nav" data-view="agenda">📅 Agenda do Dia <span id="agendaBadge" class="nav-badge hidden">0</span></button>
+        <button class="nav" data-view="dialer">📞 Power Dialer</button>
+        <button class="nav" data-view="intelligence">🧠 Inteligência</button>
         <button class="nav" data-view="motor">⚡ Motor de Busca</button>
         <button class="nav" data-view="pipeline">Pipeline</button>
-        <button class="nav" data-view="agenda">Follow-ups</button>
         <button class="nav" data-view="templates">💬 Mensagens & Scripts</button>
         <button class="nav" data-view="novo">Novo lead</button>
         <button class="nav" data-view="pesquisa">Pesquisa & fontes</button>
@@ -58,6 +60,29 @@
     </main>
   </div>
   <div id="modal" class="modal hidden"></div>
+  <script type="module">
+    import * as Hygiene from '/shared/hygiene.js';
+    import * as ScoringModes from '/shared/scoring_modes.js';
+    import * as CopyEngine from '/shared/copy_engine.js';
+    import * as CadenceEngine from '/shared/cadence_engine.js';
+    import * as RelationshipAnalytics from '/shared/relationship_analytics.js';
+    import * as EmpiricalCalibrator from '/shared/empirical_calibrator.js';
+    import * as TerritoryEngine from '/shared/territory_engine.js';
+    import * as ValueMatrix from '/shared/value_matrix.js';
+    window.Hygiene = Hygiene;
+    window.ScoringModes = ScoringModes;
+    window.CopyEngine = CopyEngine;
+    window.CadenceEngine = CadenceEngine;
+    window.RelationshipAnalytics = RelationshipAnalytics;
+    window.EmpiricalCalibrator = EmpiricalCalibrator;
+    window.TerritoryEngine = TerritoryEngine;
+    window.ValueMatrix = ValueMatrix;
+  </script>
+  <script src="/js/motor-maps.js"></script>
+  <script src="/js/classifier-ui.js"></script>
+  <script src="/js/power-dialer.js"></script>
+  <script src="/js/agenda-ui.js"></script>
+  <script src="/js/intelligence-ui.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

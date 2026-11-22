@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>AutonomIA Caça Leads</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="hdr">
+      <div>
+        <h1>AutonomIA Caça Leads</h1>
+        <p class="sub">Captura Assistida · Google Maps</p>
+      </div>
+      <span id="statusBadge" class="badge offline">Offline</span>
+    </header>
+
+    <section class="card">
+      <label for="serverUrl">Servidor Local</label>
+      <div class="row">
+        <input id="serverUrl" type="url" value="http://127.0.0.1:3100" placeholder="http://127.0.0.1:3100" />
+        <button id="btnTestar" class="btn secondary" type="button">Testar</button>
+      </div>
+    </section>
+
+    <section class="card stats">
+      <div>
+        <span class="label">Leads na fila</span>
+        <strong id="queueCount">0</strong>
+      </div>
+      <button id="btnCapturar" class="btn primary" type="button">Capturar Tela Atual</button>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <button id="btnCapturaProfunda" class="btn deep" type="button">Captura Profunda (Rolar até o Fim + Tel/Site)</button>
+        <button id="btnPararProfunda" class="btn danger hidden" type="button">Parar</button>
+      </div>
+      <div id="deepProgress" class="progress hidden"></div>
+    </section>
+
+    <section class="actions">
+      <button id="btnEnviar" class="btn success" type="button">Enviar para Caça Leads</button>
+      <div class="row">
+        <button id="btnCopiar" class="btn secondary" type="button">Copiar JSON</button>
+        <button id="btnLimpar" class="btn danger" type="button">Limpar Fila</button>
+      </div>
+    </section>
+
+    <div id="feedback" class="feedback hidden"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
