@@ -1,18 +1,4 @@
-:root {
-  --bg: #090e17;
-  --panel: #111a2e;
-  --card: #152238;
-  --border: #1e3152;
-  --text: #e2e8f0;
-  --muted: #8fa0bd;
-  --cyan: #00d2ff;
-  --neon-blue: #2563eb;
-  --orange: #00d2ff;
-  --green: #10b981;
-  --blue: #38bdf8;
-  --red: #f43f5e;
-  --navy: #0b1324;
-}
+/* Tokens semânticos carregados em /tokens.css */
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -629,4 +615,124 @@ button.ap-chip { color: var(--text); }
   background: rgba(245, 158, 11, 0.18);
   color: #fbbf24;
   border: 1px solid rgba(251, 191, 36, 0.45);
+}
+
+/* Onda 3 — Modo Casca Desligada, Barra de Estado Operacional, Diálogos & Mobile-First 44px */
+body.shell-disabled .sidebar { display: none; }
+body.shell-disabled .app { grid-template-columns: 1fr; }
+
+.nav.hidden { display: none; }
+.top-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.operational-status-bar { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+}
+.status-pill.online { border-color: rgba(16, 185, 129, 0.45); background: rgba(16, 185, 129, 0.12); color: #34d399; }
+.status-pill.offline { border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
+.status-pill.ephemeral { border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
+.status-pill.hidden { display: none; }
+
+.dialog-box { max-width: 460px; }
+.btn.danger { background: #7f1d1d; border-color: var(--red); color: #fff; }
+.kanban-mobile-tabs { display: none; }
+
+@media (max-width: 860px) {
+  .btn,
+  .nav,
+  select,
+  input,
+  .mode-pill,
+  .bucket-pill,
+  .signal-chip,
+  .ap-chip {
+    min-height: var(--touch-target-min, 44px);
+  }
+  .btn,
+  .mode-pill,
+  .bucket-pill,
+  .signal-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .top-actions { justify-content: flex-start; width: 100%; }
+}
+
+@media (max-width: 768px) {
+  .tablewrap.leads-table-wrap { overflow-x: visible; }
+  table.leads-mobile-cards { min-width: 0 !important; width: 100%; }
+  table.leads-mobile-cards,
+  table.leads-mobile-cards thead,
+  table.leads-mobile-cards tbody,
+  table.leads-mobile-cards th,
+  table.leads-mobile-cards td,
+  table.leads-mobile-cards tr {
+    display: block;
+  }
+  table.leads-mobile-cards thead { display: none; }
+  table.leads-mobile-cards tr {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  table.leads-mobile-cards td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    border-bottom: 1px solid rgba(30, 49, 82, 0.55);
+    padding: 7px 0;
+    text-align: right;
+  }
+  table.leads-mobile-cards td:first-child {
+    display: block;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
+  table.leads-mobile-cards td:last-child {
+    border-bottom: 0;
+    padding-top: 8px;
+    justify-content: flex-end;
+  }
+  table.leads-mobile-cards td[data-label]::before {
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+    flex-shrink: 0;
+  }
+  table.leads-mobile-cards td:first-child::before,
+  table.leads-mobile-cards td:last-child::before {
+    display: none;
+  }
+
+  .kanban-mobile-tabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+  }
+  .kanban-mobile-tab {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .kanban { display: block; overflow-x: visible; }
+  .kanban-col { display: none; min-width: 100%; max-width: none; }
+  .kanban-col.mobile-active { display: block; }
 }

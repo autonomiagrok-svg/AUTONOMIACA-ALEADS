@@ -5,15 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AutonomIA Systems — Caça Leads</title>
   <meta name="theme-color" content="#0b132b" />
+  <link rel="stylesheet" href="/tokens.css" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div class="app">
+  <div class="app" id="appRoot">
     <aside class="sidebar">
       <div class="brand">
         <img class="brand-logo" src="/logo-autonomia.png" alt="AutonomIA Systems" />
-        <strong>AutonomIA Systems</strong>
-        <span>Sistemas Inteligentes · Caça Leads</span>
+        <strong id="brandName">AutonomIA Systems</strong>
+        <span id="brandSlogan">Sistemas Inteligentes · Caça Leads</span>
       </div>
       <div class="profile-box">
         <label for="operatorProfile" class="profile-label">👤 Operador Ativo:</label>
@@ -49,6 +50,11 @@
           <p class="muted" id="subtitle">AutonomIA Systems · Sistemas Inteligentes</p>
         </div>
         <div class="top-actions">
+          <div id="operationalStatusBar" class="operational-status-bar">
+            <span id="networkStatusPill" class="status-pill online">🟢 Online</span>
+            <span id="ephemeralStorageBadge" class="status-pill ephemeral hidden">⚠️ Disco efêmero (faça Backup JSON)</span>
+          </div>
+          <button type="button" class="btn" id="uiModeToggle">🧠 Modo: Estratégico</button>
           <div class="top-user-indicator">
             <span class="pulse-dot"></span>
             <span id="activeOperatorDisplay">Operando: <strong>Rafael Oliveira</strong></span>
@@ -60,6 +66,7 @@
     </main>
   </div>
   <div id="modal" class="modal hidden"></div>
+  <div id="dialogModal" class="modal hidden"></div>
   <script type="module">
     import * as Hygiene from '/shared/hygiene.js';
     import * as DomainSignals from '/shared/domain_signals.js';
@@ -80,6 +87,10 @@
     window.TerritoryEngine = TerritoryEngine;
     window.ValueMatrix = ValueMatrix;
   </script>
+  <script src="/js/runtime_adapter.js"></script>
+  <script src="/js/ports/config.js"></script>
+  <script src="/js/ports/input_adapter.js"></script>
+  <script src="/js/ports/output_actions.js"></script>
   <script src="/js/motor-maps.js"></script>
   <script src="/js/classifier-ui.js"></script>
   <script src="/js/power-dialer.js"></script>

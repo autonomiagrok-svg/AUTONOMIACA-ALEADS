@@ -159,8 +159,7 @@
                         <strong id="wval_${wf.key}">${val > 0 ? '+' : ''}${val}</strong>
                       </div>
                       <input type="range" min="${wf.min}" max="${wf.max}" value="${val}"
-                        class="lens-weight-input" data-key="${wf.key}"
-                        oninput="document.getElementById('wval_${wf.key}').textContent=(Number(this.value)>0?'+':'')+this.value" />
+                        class="lens-weight-input" data-key="${wf.key}" />
                     </div>`;
     }).join('')}
               </div>
@@ -349,7 +348,7 @@
                     <td>${window.esc(it.lead.bairro || '—')}, ${window.esc(it.lead.cidade || '')}</td>
                     <td>${window.esc(it.lead.whatsapp || it.lead.telefone || '—')}</td>
                     <td>${(it.razoes_match || []).map((r) => `<span class="breakdown-chip pos">${window.esc(r)}</span>`).join(' ')}</td>
-                    <td><button type="button" class="btn" onclick="openLead('${window.esc(it.lead.id)}')">Ficha</button></td>
+                    <td><button type="button" class="btn intel-open-lead-btn" data-id="${window.esc(it.lead.id)}">Ficha</button></td>
                   </tr>
                 `).join('') || '<tr><td colspan="6" class="muted">Nenhum clone novo acionável encontrado para este lead.</td></tr>'}
               </tbody>
@@ -438,7 +437,7 @@
                     <div class="muted" style="font-size:11px">${window.esc((item.matrix.sinais_brecha || []).slice(0, 3).join(' · ') || 'Sem brechas')}</div>
                   </td>
                   <td><span class="badge ${window.esc(item.status)}">${window.esc(item.status)}</span></td>
-                  <td><button type="button" class="btn" onclick="openLead('${window.esc(item.id)}')">Ficha</button></td>
+                  <td><button type="button" class="btn intel-open-lead-btn" data-id="${window.esc(item.id)}">Ficha</button></td>
                 </tr>
               `).join('') || '<tr><td colspan="6" class="muted">Nenhum lead neste quadrante.</td></tr>'}
             </tbody>
@@ -606,9 +605,29 @@
       });
     });
 
+    document.querySelectorAll('.lens-weight-input').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const valEl = document.getElementById(`wval_${inp.dataset.key}`);
+        if (valEl) {
+          const n = Number(inp.value);
+          valEl.textContent = `${n > 0 ? '+' : ''}${n}`;
+        }
+      });
+    });
+
+    document.querySelectorAll('.intel-open-lead-btn').forEach((btn) => {
+      btn.addEventListener('click', () => window.openLead?.(btn.dataset.id));
+    });
+
     document.querySelectorAll('.btn-del-lens').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        if (!confirm('Excluir esta lente customizada?')) return;
+        const ok = await window.RuntimeAdapter?.confirmDialog({
+          title: 'Excluir Lente',
+          message: 'Deseja excluir esta lente customizada?',
+          confirmLabel: 'Excluir',
+          danger: true,
+        });
+        if (!ok) return;
         try {
           await window.api(`/api/lenses/${btn.dataset.id}`, { method: 'DELETE' });
           await window.loadCustomLenses();
@@ -794,7 +813,13 @@
 
     document.getElementById('btnExecCirurgica')?.addEventListener('click', async () => {
       const rem = intelState.cleanupPreview?.removiveis_cirurgica || 0;
-      if (!confirm(`Confirmar Faxina Cirúrgica?\nSerão removidos ${rem} registros legados/fantasmas após backup automático em data/backups/.`)) return;
+      const ok = await window.RuntimeAdapter?.confirmDialog({
+        title: 'Confirmar Faxina Cirúrgica',
+        message: `Serão removidos ${rem} registros legados/fantasmas após backup automático em data/backups/.`,
+        confirmLabel: 'Executar Faxina',
+        danger: true,
+      });
+      if (!ok) return;
       try {
         const res = await window.api('/api/system/cleanup/execute', {
           method: 'POST',
@@ -812,7 +837,12 @@
     });
 
     document.getElementById('btnExecResetTotal')?.addEventListener('click', async () => {
-      const typed = prompt('ATENÇÃO: Isso vai zerar todos os leads após gravar backup automático em data/backups/.\nDigite ZERAR para confirmar:');
+      const typed = await window.RuntimeAdapter?.promptDialog({
+        title: 'ATENÇÃO — Reset Total da Base',
+        message: 'Isso vai zerar todos os leads após gravar backup automático em data/backups/.\nDigite ZERAR para confirmar:',
+        placeholder: 'ZERAR',
+        confirmLabel: 'Zerar Base',
+      });
       if (typed !== 'ZERAR') return window.toast?.('Reset cancelado.');
       try {
         const res = await window.api('/api/system/cleanup/execute', {
@@ -842,7 +872,7 @@
     });
 
     document.getElementById('btnDownloadBackup')?.addEventListener('click', () => {
-      window.downloadAuthenticatedFile?.('/api/system/backup', 'autonomia-leads-backup.json')
+      (window.AppPorts?.outputActions?.exportBackup?.() || Promise.resolve())
         .catch((err) => window.toast?.('Erro ao baixar backup: ' + err.message));
     });
   }

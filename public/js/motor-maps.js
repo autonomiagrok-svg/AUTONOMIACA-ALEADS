@@ -43,17 +43,20 @@
       <div class="modal-box" tabindex="-1" style="max-width:560px">
         <div class="actions" style="justify-content:space-between;align-items:center">
           <h2 style="margin:0">Colar JSON da Extensão</h2>
-          <button class="btn" type="button" onclick="$('#modal').classList.add('hidden')">Fechar</button>
+          <button class="btn" type="button" id="btnCloseExtModal">Fechar</button>
         </div>
         <p class="muted" style="margin-top:8px">Cole abaixo o JSON copiado pelo botão <strong>Copiar JSON</strong> da micro-extensão do Google Maps.</p>
         <textarea id="extJsonInput" rows="8" style="width:100%;margin-top:8px;font-family:monospace;font-size:12px" placeholder='{"leads": [...]}'></textarea>
         <div class="actions" style="margin-top:12px;justify-content:flex-end">
-          <button class="btn" type="button" onclick="$('#modal').classList.add('hidden')">Cancelar</button>
+          <button class="btn" type="button" id="btnCancelExtModal">Cancelar</button>
           <button class="btn primary" type="button" id="btnConfirmExtJson">Importar Lote</button>
         </div>
       </div>`;
 
-    document.getElementById('btnConfirmExtJson').onclick = async () => {
+    document.getElementById('btnCloseExtModal')?.addEventListener('click', () => document.getElementById('modal')?.classList.add('hidden'));
+    document.getElementById('btnCancelExtModal')?.addEventListener('click', () => document.getElementById('modal')?.classList.add('hidden'));
+
+    document.getElementById('btnConfirmExtJson')?.addEventListener('click', async () => {
       const raw = document.getElementById('extJsonInput')?.value?.trim();
       if (!raw) return window.toast?.('Cole o JSON antes de importar.');
       try {
@@ -65,7 +68,7 @@
       } catch (err) {
         window.toast?.('Erro: ' + err.message);
       }
-    };
+    });
   }
 
   window.pasteExtensionJson = async function pasteExtensionJson() {
@@ -272,6 +275,15 @@
     SEGMENTS_CATALOG = segRes.items || { RESTAURANTE: 'Restaurante', CLINICA: 'Clínica' };
     ACTIVE_MISSION = activeRes.mission || null;
 
+    const tenant = window.AppPorts?.config?.get?.()?.tenant || {};
+    const pendingTarget = window.AppPorts?.inputAdapter?.consumePendingSearchTarget?.() || null;
+    if (pendingTarget?.segmento && pendingTarget.segmento in SEGMENTS_CATALOG) {
+      SELECTED_SEGMENT = pendingTarget.segmento;
+    }
+    const defaultCity = pendingTarget?.cidade || tenant.default_city || 'Governador Valadares';
+    const defaultUf = pendingTarget?.uf || tenant.default_uf || 'MG';
+    const defaultCustom = pendingTarget?.custom_query || '';
+
     const segEntries = Object.entries(SEGMENTS_CATALOG);
 
     container.innerHTML = `
@@ -287,11 +299,11 @@
         <form id="mapsMissionForm" class="form" style="margin-top:14px">
           <div class="field">
             <label>📍 Cidade</label>
-            <input id="mapsCidade" value="Governador Valadares" required />
+            <input id="mapsCidade" value="${window.esc(defaultCity)}" required />
           </div>
           <div class="field">
             <label>🗺️ Estado (UF)</label>
-            <input id="mapsUf" value="MG" maxlength="2" required style="max-width:120px" />
+            <input id="mapsUf" value="${window.esc(defaultUf)}" maxlength="2" required style="max-width:120px" />
           </div>
 
           <div class="field full">
@@ -307,7 +319,7 @@
 
           <div class="field full">
             <label>🔎 Ou digite um Termo Livre (opcional — sobrescreve o segmento acima)</label>
-            <input id="mapsCustomQuery" placeholder="Ex.: Clínica Odontológica, Distribuidora de Bebidas, Hamburgueria Artesanal..." />
+            <input id="mapsCustomQuery" value="${window.esc(defaultCustom)}" placeholder="Ex.: Clínica Odontológica, Distribuidora de Bebidas, Hamburgueria Artesanal..." />
           </div>
 
           <div class="field full" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
@@ -333,13 +345,17 @@
             <p class="muted" style="margin:4px 0 0">Antes da primeira captura, recarregue a pasta <code>extension/</code> em <code>chrome://extensions</code> (ou <code>edge://extensions</code>). A aba aberta do Google Maps exibirá um HUD flutuante com progresso e botão Parar.</p>
           </div>
           <div class="actions" style="margin:0">
-            <button type="button" class="btn" onclick="pasteExtensionJson()">📋 Colar JSON da Extensão</button>
-            <button type="button" class="btn" onclick="document.getElementById('importCsvFile')?.click()">📥 Importar CSV</button>
-            <button type="button" class="btn" onclick="document.querySelector('.nav[data-view=novo]')?.click()">➕ Cadastro Manual</button>
+            <button type="button" class="btn" id="btnMotorPasteJson">📋 Colar JSON da Extensão</button>
+            <button type="button" class="btn" id="btnMotorImportCsv">📥 Importar CSV</button>
+            <button type="button" class="btn" id="btnMotorNewLead">➕ Cadastro Manual</button>
           </div>
         </div>
       </div>
     `;
+
+    document.getElementById('btnMotorPasteJson')?.addEventListener('click', () => window.pasteExtensionJson?.());
+    document.getElementById('btnMotorImportCsv')?.addEventListener('click', () => document.getElementById('importCsvFile')?.click());
+    document.getElementById('btnMotorNewLead')?.addEventListener('click', () => document.querySelector('.nav[data-view=novo]')?.click());
 
     document.querySelectorAll('.maps-seg-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -379,7 +395,7 @@
             startUrl += `&autonomia_key=${encodeURIComponent(accessKey)}`;
           }
         }
-        window.open(startUrl, '_blank', 'noopener,noreferrer');
+        window.RuntimeAdapter?.openExternal(startUrl) || window.open(startUrl, '_blank', 'noopener,noreferrer');
         startPolling();
         window.toast?.(`Missão iniciada: "${res.mission.query}". A extensão vai rolar até o final e capturar tudo!`);
       } catch (err) {

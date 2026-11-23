@@ -1,0 +1,34 @@
+:root {
+  /* Tokens Semânticos — Paleta Dark Oficial AutonomIA Systems */
+  --surface-bg: #090e17;
+  --surface-panel: #111a2e;
+  --surface-card: #152238;
+  --border-subtle: #1e3152;
+  --border-strong: #2b456e;
+  --text-primary: #e2e8f0;
+  --text-muted: #8fa0bd;
+  --accent-primary: #00d2ff;
+  --accent-strong: #0284c7;
+  --status-success: #10b981;
+  --status-warn: #f59e0b;
+  --status-danger: #f43f5e;
+  --touch-target-min: 44px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Aliases de Retrocompatibilidade */
+  --bg: var(--surface-bg);
+  --panel: var(--surface-panel);
+  --card: var(--surface-card);
+  --border: var(--border-subtle);
+  --text: var(--text-primary);
+  --muted: var(--text-muted);
+  --cyan: var(--accent-primary);
+  --neon-blue: #2563eb;
+  --orange: var(--accent-primary);
+  --green: var(--status-success);
+  --blue: #38bdf8;
+  --red: var(--status-danger);
+  --navy: #0b1324;
+}

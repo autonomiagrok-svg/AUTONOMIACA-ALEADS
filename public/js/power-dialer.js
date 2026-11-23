@@ -461,10 +461,9 @@
     document.getElementById('btnDialerWhatsApp')?.addEventListener('click', async () => {
       const text = msgBox?.value || sessionState.lastMessageText;
       const phone = lead.whatsapp || lead.telefone;
-      const waUrl = window.Hygiene?.buildWhatsAppLink(phone, text);
-      if (!waUrl) return window.toast?.('Número inválido para WhatsApp');
-
-      window.open(waUrl, '_blank', 'noopener,noreferrer');
+      const waAction = window.AppPorts?.outputActions?.openWhatsApp;
+      const out = waAction ? waAction(phone, text, lead) : { ok: false };
+      if (!out?.ok) return window.toast?.('Número inválido para WhatsApp');
       try {
         if (sessionState.mode === 'followup') {
           const res = await window.api(`/api/leads/${lead.id}/followup`, {

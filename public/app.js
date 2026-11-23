@@ -6,29 +6,29 @@ const LEAD_PAGE_SIZE = 50;
 let pendingImportRows = [];
 let pendingImportPreview = [];
 let OPEN_LEAD = null;
-let ACTIVE_OPERATOR = localStorage.getItem('autonomia_operator') || 'Rafael Oliveira';
+let ACTIVE_OPERATOR = window.RuntimeAdapter?.getStorage('autonomia_operator') || 'Rafael Oliveira';
+let MOBILE_PIPELINE_STAGE = '';
 
-const OPERATORS = {
-  'Rafael Oliveira': {
-    nome: 'Rafael Oliveira',
-    cargo: 'Especialista em Sistemas & Automação Inteligente',
-    badge: 'Especialista em Sistemas',
-    fone: ''
-  },
-  'Sara Rosseto': {
-    nome: 'Sara Rosseto',
-    cargo: 'Consultora de Inteligência Operacional & IA',
-    badge: 'Consultora de IA & Processos',
-    fone: ''
+function getOperatorsMap() {
+  const list = window.AppPorts?.config?.get?.()?.tenant?.operators || [
+    { name: 'Rafael Oliveira', role: 'Especialista em Sistemas & Automação Inteligente', badge: 'Especialista em Sistemas' },
+    { name: 'Sara Rosseto', role: 'Consultora de Inteligência Operacional & IA', badge: 'Consultora de IA & Processos' },
+  ];
+  const map = {};
+  for (const op of list) {
+    map[op.name] = { nome: op.name, cargo: op.role || '', badge: op.badge || 'Operador' };
   }
-};
+  return map;
+}
 
 function setOperator(nome) {
-  if (!OPERATORS[nome]) nome = 'Rafael Oliveira';
+  const operators = getOperatorsMap();
+  const names = Object.keys(operators);
+  if (!operators[nome]) nome = names[0] || 'Rafael Oliveira';
   ACTIVE_OPERATOR = nome;
-  localStorage.setItem('autonomia_operator', nome);
+  window.RuntimeAdapter?.setStorage('autonomia_operator', nome);
   const badgeEl = $('#profileBadge');
-  if (badgeEl) badgeEl.textContent = OPERATORS[nome].badge;
+  if (badgeEl) badgeEl.textContent = operators[nome]?.badge || '';
   const dispEl = $('#activeOperatorDisplay');
   if (dispEl) dispEl.innerHTML = `Operando: <strong>${esc(nome)}</strong>`;
   const selEl = $('#operatorProfile');
@@ -36,61 +36,33 @@ function setOperator(nome) {
   if (OPEN_LEAD) updateMessageTemplate();
 }
 
-async function api(path, opts = {}) {
-  const { _retriedAuth, ...fetchOpts } = opts;
-  const r = await fetch(path, {
-    ...fetchOpts,
-    headers: {
-      'content-type': 'application/json',
-      'x-access-key': localStorage.getItem('autonomia_access_key') || '',
-      ...(fetchOpts.headers || {}),
-    },
-  });
-  const data = await r.json().catch(() => ({}));
-  if (r.status === 401 && data.auth_required && !_retriedAuth) {
-    const entered = window.prompt('Servidor protegido. Digite a chave de acesso:');
-    if (entered !== null && entered.trim()) {
-      localStorage.setItem('autonomia_access_key', entered.trim());
-      return api(path, { ...fetchOpts, _retriedAuth: true });
-    }
+function updateOperationalStatusBar() {
+  const pill = $('#networkStatusPill');
+  if (pill) {
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+    pill.textContent = isOnline ? '🟢 Online' : '🟠 Offline · Modo Local';
+    pill.classList.toggle('online', isOnline);
+    pill.classList.toggle('offline', !isOnline);
   }
+  const ephemBadge = $('#ephemeralStorageBadge');
+  if (ephemBadge) {
+    const storageMode = window.AppPorts?.config?.get?.()?.storage_mode || 'persistent';
+    ephemBadge.classList.toggle('hidden', storageMode !== 'ephemeral');
+  }
+}
+
+async function api(path, opts = {}) {
+  if (window.RuntimeAdapter?.http) {
+    return window.RuntimeAdapter.http(path, opts);
+  }
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
 }
 
-window.downloadAuthenticatedFile = async function downloadAuthenticatedFile(url, fallbackFilename = 'download.bin', _retriedAuth = false) {
-  const r = await fetch(url, {
-    headers: {
-      'x-access-key': localStorage.getItem('autonomia_access_key') || '',
-    },
-  });
-  if (r.status === 401 && !_retriedAuth) {
-    const data = await r.json().catch(() => ({}));
-    if (data.auth_required) {
-      const entered = window.prompt('Servidor protegido. Digite a chave de acesso:');
-      if (entered !== null && entered.trim()) {
-        localStorage.setItem('autonomia_access_key', entered.trim());
-        return window.downloadAuthenticatedFile(url, fallbackFilename, true);
-      }
-    }
-    throw new Error(data.error || 'Não autorizado');
-  }
-  if (!r.ok) {
-    const data = await r.json().catch(() => ({}));
-    throw new Error(data.error || r.statusText || `HTTP ${r.status}`);
-  }
-  const cd = r.headers.get('content-disposition') || '';
-  const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
-  const filename = match?.[1] ? decodeURIComponent(match[1].trim()) : fallbackFilename;
-  const blob = await r.blob();
-  const objUrl = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = objUrl;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
+window.downloadAuthenticatedFile = async function downloadAuthenticatedFile(url, fallbackFilename = 'download.bin') {
+  return window.RuntimeAdapter?.downloadAuthenticated(url, fallbackFilename);
 };
 
 window.refreshMeta = async function refreshMeta() {
@@ -116,46 +88,96 @@ function toast(msg) {
   setTimeout(() => t.remove(), 2800);
 }
 
-async function init() {
+let APP_INITIALIZED = false;
+
+async function init(configOverrides = null) {
+  await window.AppPorts?.config?.init(configOverrides);
   META = await api('/api/meta');
   window.META = META;
   if (!Array.isArray(META.segmentos) || !Array.isArray(META.status)) throw new Error('Configuração inválida recebida do servidor');
   await window.loadCustomLenses?.();
-  
+
   const opSelect = $('#operatorProfile');
   if (opSelect) {
-    opSelect.value = ACTIVE_OPERATOR;
-    opSelect.addEventListener('change', (e) => {
-      setOperator(e.target.value);
-      toast(`Perfil ativo alterado para ${e.target.value}`);
-    });
+    const operators = getOperatorsMap();
+    if (operators[ACTIVE_OPERATOR]) opSelect.value = ACTIVE_OPERATOR;
+    if (!APP_INITIALIZED) {
+      opSelect.addEventListener('change', (e) => {
+        setOperator(e.target.value);
+        toast(`Perfil ativo alterado para ${e.target.value}`);
+      });
+    }
   }
   setOperator(ACTIVE_OPERATOR);
+  updateOperationalStatusBar();
 
-  $$('.nav').forEach((b) =>
-    b.addEventListener('click', () => {
-      $$('.nav').forEach((x) => x.classList.remove('active'));
-      b.classList.add('active');
-      show(b.dataset.view);
-    })
-  );
-  let searchTimer;
-  $('#search').addEventListener('input', () => {
-    LEAD_PAGE = 1;
-    clearTimeout(searchTimer);
-    if ($('.nav.active')?.dataset.view === 'leads') searchTimer = setTimeout(() => show('leads'), 220);
-  });
-  $('#importCsvButton').addEventListener('click', () => $('#importCsvFile').click());
-  $('#importCsvFile').addEventListener('change', importCsvFile);
-  $('#exportCsvButton')?.addEventListener('click', () => {
-    window.downloadAuthenticatedFile('/api/export.csv', 'autonomia-systems-caca-leads.csv').catch((err) => toast(err.message));
-  });
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden');
-  });
-  show('dashboard');
+  if (!APP_INITIALIZED) {
+    APP_INITIALIZED = true;
+    window.addEventListener('online', updateOperationalStatusBar);
+    window.addEventListener('offline', updateOperationalStatusBar);
+
+    $('#uiModeToggle')?.addEventListener('click', () => {
+      const current = window.AppPorts?.config?.get?.()?.ui_mode || 'avancado';
+      const next = current === 'simplificado' ? 'avancado' : 'simplificado';
+      window.CacaLeadsVertical.setUiMode(next);
+      toast(next === 'simplificado' ? 'Modo Operacional ativado (4 abas)' : 'Modo Estratégico ativado');
+    });
+
+    $$('.nav').forEach((b) =>
+      b.addEventListener('click', () => {
+        window.CacaLeadsVertical.navigate(b.dataset.view);
+      })
+    );
+    let searchTimer;
+    $('#search').addEventListener('input', () => {
+      LEAD_PAGE = 1;
+      clearTimeout(searchTimer);
+      if ($('.nav.active')?.dataset.view === 'leads') searchTimer = setTimeout(() => show('leads'), 220);
+    });
+    $('#importCsvButton').addEventListener('click', () => $('#importCsvFile').click());
+    $('#importCsvFile').addEventListener('change', importCsvFile);
+    $('#exportCsvButton')?.addEventListener('click', () => {
+      (window.AppPorts?.outputActions?.exportCsv?.() || Promise.resolve()).catch((err) => toast(err.message));
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden');
+    });
+  }
+
+  const initialView = configOverrides?.initialView || 'dashboard';
+  const visible = window.AppPorts?.config?.getVisibleViews?.() || ['dashboard'];
+  const startView = visible.includes(initialView) ? initialView : visible[0] || 'leads';
+  await window.CacaLeadsVertical.navigate(startView);
   window.refreshAgendaBadge?.();
 }
+
+window.CacaLeadsVertical = {
+  contract_version: '1.0',
+  ports: window.AppPorts,
+  async mount(_container, configOverrides = {}, adapters = {}) {
+    if (adapters?.outputActions) {
+      window.AppPorts?.outputActions?.configure?.(adapters.outputActions);
+    }
+    if (adapters?.runtimeAdapter && window.RuntimeAdapter) {
+      Object.assign(window.RuntimeAdapter, adapters.runtimeAdapter);
+    }
+    await init(configOverrides);
+    return this;
+  },
+  setUiMode(mode) {
+    const next = window.AppPorts?.config?.setUiMode?.(mode) || mode;
+    const visible = window.AppPorts?.config?.getVisibleViews?.(next) || [];
+    const activeView = $('.nav.active')?.dataset?.view;
+    if (activeView && !visible.includes(activeView)) {
+      this.navigate(visible[0] || 'leads');
+    }
+    return next;
+  },
+  async navigate(view) {
+    $$('.nav').forEach((x) => x.classList.toggle('active', x.dataset.view === view));
+    return show(view);
+  },
+};
 
 function parseCsv(text) {
   const source = String(text).replace(/^\uFEFF/, '');
@@ -225,14 +247,18 @@ function renderImportPreview() {
   const invalid = pendingImportPreview.filter((x) => x.state === 'invalid').length;
   modal.classList.remove('hidden'); modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
   modal.innerHTML = `<div class="modal-box" style="max-width:1100px" aria-labelledby="importTitle">
-    <div class="actions" style="justify-content:space-between"><h2 id="importTitle">Revisar importação</h2><button class="btn" onclick="closeImportPreview()">Cancelar</button></div>
+    <div class="actions" style="justify-content:space-between"><h2 id="importTitle">Revisar importação</h2><button type="button" class="btn" id="btnCloseImportPreview">Cancelar</button></div>
     <p class="muted">${pendingImportRows.length} linhas · ${fresh} novas · ${duplicates} possíveis duplicatas · ${invalid} inválidas. Duplicatas começam desmarcadas; marque uma delas apenas se realmente for outra unidade/empresa.</p>
-    <div class="actions"><button class="btn" onclick="toggleImportRows(true)">Selecionar novas</button><button class="btn" onclick="toggleImportRows(false)">Desmarcar tudo</button></div>
+    <div class="actions"><button type="button" class="btn" id="btnSelectNewImport">Selecionar novas</button><button type="button" class="btn" id="btnUnselectAllImport">Desmarcar tudo</button></div>
     <div class="tablewrap" style="max-height:60vh;overflow:auto;margin-top:10px"><table style="min-width:760px"><thead><tr><th>Importar</th><th>Nome</th><th>Cidade / segmento</th><th>WhatsApp</th><th>Resultado da conferência</th></tr></thead><tbody>
       ${pendingImportPreview.map((x) => `<tr><td><input class="import-check" type="checkbox" data-index="${x.index}" ${x.state === 'new' ? 'checked' : ''} ${x.state === 'invalid' ? 'disabled' : ''}></td><td>${esc(x.item?.nome_fantasia || '—')}</td><td>${esc(x.item?.cidade || '')} · ${esc(x.item?.segmento || '')}</td><td>${esc(x.item?.whatsapp || '—')}</td><td><span class="badge ${x.state === 'new' ? 'QUALIFICADO' : x.state === 'duplicate' ? 'VISITA' : 'DESCARTADO'}">${x.state === 'new' ? 'Novo' : x.state === 'duplicate' ? 'Possível duplicata' : 'Inválido'}</span>${x.matches?.length ? `<br><span class="muted">${x.matches.map((m) => `${esc(m.nome_fantasia)} · ${esc(m.cidade || '')}`).join('<br>')}</span>` : `<span class="muted">${esc(x.reason || '')}</span>`}</td></tr>`).join('')}
     </tbody></table></div>
-    <div class="actions"><button class="btn primary" onclick="commitImportPreview()">Importar selecionados</button><span class="muted">Nada será importado até você confirmar.</span></div>
+    <div class="actions"><button type="button" class="btn primary" id="btnCommitImport">Importar selecionados</button><span class="muted">Nada será importado até você confirmar.</span></div>
   </div>`;
+  $('#btnCloseImportPreview')?.addEventListener('click', closeImportPreview);
+  $('#btnSelectNewImport')?.addEventListener('click', () => toggleImportRows(true));
+  $('#btnUnselectAllImport')?.addEventListener('click', () => toggleImportRows(false));
+  $('#btnCommitImport')?.addEventListener('click', commitImportPreview);
 }
 
 function toggleImportRows(checked) { $$('.import-check').forEach((x) => { if (!x.disabled) x.checked = checked && pendingImportPreview.find((p) => p.index === Number(x.dataset.index))?.state === 'new'; }); }
@@ -287,7 +313,8 @@ async function show(view) {
     if (view === 'novo') return novo(v);
     if (view === 'pesquisa') return pesquisa(v);
   } catch (error) {
-    v.innerHTML = `<div class="panel error-state" role="alert"><h2>Não foi possível carregar esta tela</h2><p>${esc(error.message)}</p><button class="btn primary" onclick="show('${esc(view)}')">Tentar novamente</button></div>`;
+    v.innerHTML = `<div class="panel error-state" role="alert"><h2>Não foi possível carregar esta tela</h2><p>${esc(error.message)}</p><button type="button" class="btn primary" id="btnRetryView">Tentar novamente</button></div>`;
+    $('#btnRetryView')?.addEventListener('click', () => show(view));
   }
 }
 
@@ -415,34 +442,34 @@ function renderLeadsView(v, filterState) {
   v.innerHTML = `
     ${window.renderClassifierModeBar?.(visibleIds) || ''}
     <div class="filters">
-      <select id="fStatus" onchange="resetLeadPage()"><option value="">Todos status</option>${META.status.map((s) => `<option value="${s}" ${status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
-      <select id="fSeg" onchange="resetLeadPage()"><option value="">Todos segmentos</option>${META.segmentos.map((s) => `<option value="${s}" ${segmento === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
-      <select id="fOrigem" onchange="resetLeadPage()">
+      <select id="fStatus" class="lead-filter-select"><option value="">Todos status</option>${META.status.map((s) => `<option value="${s}" ${status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      <select id="fSeg" class="lead-filter-select"><option value="">Todos segmentos</option>${META.segmentos.map((s) => `<option value="${s}" ${segmento === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      <select id="fOrigem" class="lead-filter-select">
         <option value="">Todas origens</option>
         <option value="MAPS" ${origem === 'MAPS' ? 'selected' : ''}>Google Maps</option>
         <option value="OSM" ${origem === 'OSM' ? 'selected' : ''}>OpenStreetMap</option>
         <option value="CSV" ${origem === 'CSV' ? 'selected' : ''}>CSV</option>
         <option value="MANUAL" ${origem === 'MANUAL' ? 'selected' : ''}>Manual</option>
       </select>
-      <select id="fDor" onchange="resetLeadPage()">
+      <select id="fDor" class="lead-filter-select">
         <option value="">Todas dores</option>
         ${allDores.map((d) => `<option value="${esc(d)}" ${dor === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}
       </select>
-      <select id="fCidade" onchange="resetLeadPage()"><option value="">Todas cidades</option>${(META.cidades || ['Governador Valadares']).map((c) => `<option value="${esc(c)}" ${cidade === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
-      <select id="fWhatsapp" onchange="resetLeadPage()"><option value="">WhatsApp: todos</option><option value="1" ${whatsapp === '1' ? 'selected' : ''}>Com número de WhatsApp</option><option value="0" ${whatsapp === '0' ? 'selected' : ''}>Sem WhatsApp ou inválido</option></select>
-      <select id="fVerificacao" onchange="resetLeadPage()"><option value="">Verificação: todas</option>${(META.whatsapp_status || []).map((s) => `<option value="${s}" ${verificacao === s ? 'selected' : ''}>${s.replaceAll('_',' ')}</option>`).join('')}</select>
-      <select id="fFonte" onchange="resetLeadPage()"><option value="">Todas as fontes</option>${(META.fontes || []).map((s) => `<option value="${esc(s)}" ${fonte === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
-      <select id="fLote" onchange="resetLeadPage()"><option value="">Todos os lotes</option>${(META.lotes || []).map((l) => `<option value="${esc(l)}" ${lote === l ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
-      <select id="fSort" onchange="resetLeadPage()"><option value="score" ${sort === 'score' ? 'selected' : ''}>Ordenar: score</option><option value="nome" ${sort === 'nome' ? 'selected' : ''}>Nome</option><option value="recente" ${sort === 'recente' ? 'selected' : ''}>Mais recentes</option><option value="verificado" ${sort === 'verificado' ? 'selected' : ''}>Verificação recente</option><option value="followup" ${sort === 'followup' ? 'selected' : ''}>Próximo follow-up</option></select>
-      <button class="btn" onclick="show('leads')">Atualizar</button>
+      <select id="fCidade" class="lead-filter-select"><option value="">Todas cidades</option>${(META.cidades || [window.AppPorts?.config?.get?.()?.tenant?.default_city || 'Governador Valadares']).map((c) => `<option value="${esc(c)}" ${cidade === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <select id="fWhatsapp" class="lead-filter-select"><option value="">WhatsApp: todos</option><option value="1" ${whatsapp === '1' ? 'selected' : ''}>Com número de WhatsApp</option><option value="0" ${whatsapp === '0' ? 'selected' : ''}>Sem WhatsApp ou inválido</option></select>
+      <select id="fVerificacao" class="lead-filter-select"><option value="">Verificação: todas</option>${(META.whatsapp_status || []).map((s) => `<option value="${s}" ${verificacao === s ? 'selected' : ''}>${s.replaceAll('_',' ')}</option>`).join('')}</select>
+      <select id="fFonte" class="lead-filter-select"><option value="">Todas as fontes</option>${(META.fontes || []).map((s) => `<option value="${esc(s)}" ${fonte === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
+      <select id="fLote" class="lead-filter-select"><option value="">Todos os lotes</option>${(META.lotes || []).map((l) => `<option value="${esc(l)}" ${lote === l ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+      <select id="fSort" class="lead-filter-select"><option value="score" ${sort === 'score' ? 'selected' : ''}>Ordenar: score</option><option value="nome" ${sort === 'nome' ? 'selected' : ''}>Nome</option><option value="recente" ${sort === 'recente' ? 'selected' : ''}>Mais recentes</option><option value="verificado" ${sort === 'verificado' ? 'selected' : ''}>Verificação recente</option><option value="followup" ${sort === 'followup' ? 'selected' : ''}>Próximo follow-up</option></select>
+      <button type="button" class="btn" id="btnRefreshLeads">Atualizar</button>
     </div>
-    <div class="panel tablewrap">
-      <table>
+    <div class="panel tablewrap leads-table-wrap">
+      <table class="leads-mobile-cards">
         <thead><tr><th>Lead / Origem / Dores</th><th>Segmento</th><th>Cidade / Bairro</th><th>Contato</th><th>WhatsApp</th><th>Potencial</th><th>Status</th><th>Score</th><th></th></tr></thead>
         <tbody>
           ${pageEntries.map(({ lead: x, ev }) => `
             <tr title="${esc(ev.motivo_destaque || '')}">
-              <td>
+              <td data-label="Lead">
                 <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                   <strong>${esc(x.nome_fantasia)}</strong>
                   ${window.renderOriginBadge?.(x) || ''}
@@ -450,16 +477,16 @@ function renderLeadsView(v, filterState) {
                 <div class="muted" style="font-size:12px">${esc(ev.motivo_destaque || x.razao_social || x.cnpj || x.fonte || '')}</div>
                 <div>${window.renderPainBadges?.(ev.etiquetas_dor) || ''}</div>
               </td>
-              <td>${esc(x.segmento)}</td>
-              <td>${esc(x.cidade || 'Governador Valadares')}<br><span class="muted">${esc(x.bairro || '—')}</span></td>
-              <td>${esc(x.telefone || x.whatsapp || '—')}</td>
-              <td>${esc(x.whatsapp || '—')}<br><span class="badge">${esc((x.whatsapp_status || (x.whatsapp ? 'NAO_VERIFICADO' : 'SEM WHATSAPP')).replaceAll('_',' '))}</span></td>
-              <td><span class="badge ${esc(ev.potencial)}">${esc(ev.potencial)}</span></td>
-              <td><span class="badge ${esc(x.status)}">${esc(x.status)}</span></td>
-              <td title="${esc(window.formatBreakdownTooltip?.(ev.breakdown) || '')}" style="cursor:help">
+              <td data-label="Segmento">${esc(x.segmento)}</td>
+              <td data-label="Cidade / Bairro">${esc(x.cidade || window.AppPorts?.config?.get?.()?.tenant?.default_city || 'Governador Valadares')}<br><span class="muted">${esc(x.bairro || '—')}</span></td>
+              <td data-label="Contato">${esc(x.telefone || x.whatsapp || '—')}</td>
+              <td data-label="WhatsApp">${esc(x.whatsapp || '—')}<br><span class="badge">${esc((x.whatsapp_status || (x.whatsapp ? 'NAO_VERIFICADO' : 'SEM WHATSAPP')).replaceAll('_',' '))}</span></td>
+              <td data-label="Potencial"><span class="badge ${esc(ev.potencial)}">${esc(ev.potencial)}</span></td>
+              <td data-label="Status"><span class="badge ${esc(x.status)}">${esc(x.status)}</span></td>
+              <td data-label="Score" title="${esc(window.formatBreakdownTooltip?.(ev.breakdown) || '')}" style="cursor:help">
                 <strong style="border-bottom:1px dotted var(--cyan)">${ev.score}</strong>
               </td>
-              <td><button class="btn" onclick="openLead('${x.id}')">Abrir</button></td>
+              <td data-label="Ações"><button type="button" class="btn open-lead-btn" data-lead-id="${esc(x.id)}">Abrir</button></td>
             </tr>`).join('') || '<tr><td colspan="9">Nenhum lead corresponde a esses filtros.</td></tr>'}
         </tbody>
       </table>
@@ -467,11 +494,19 @@ function renderLeadsView(v, filterState) {
     <div class="pagination" aria-label="Paginação da lista de leads">
       <span class="muted">${total ? (LEAD_PAGE - 1) * LEAD_PAGE_SIZE + 1 : 0}–${Math.min(LEAD_PAGE * LEAD_PAGE_SIZE, total)} de ${total} leads</span>
       <div class="actions" style="margin:0">
-        <button class="btn" onclick="changeLeadPage(-1)" ${LEAD_PAGE <= 1 ? 'disabled' : ''}>Anterior</button>
+        <button type="button" class="btn" id="btnPrevLeadPage" ${LEAD_PAGE <= 1 ? 'disabled' : ''}>Anterior</button>
         <span class="page-indicator">Página ${LEAD_PAGE} de ${pageCount}</span>
-        <button class="btn" onclick="changeLeadPage(1)" ${LEAD_PAGE >= pageCount ? 'disabled' : ''}>Próxima</button>
+        <button type="button" class="btn" id="btnNextLeadPage" ${LEAD_PAGE >= pageCount ? 'disabled' : ''}>Próxima</button>
       </div>
     </div>`;
+
+  $$('.lead-filter-select', v).forEach((sel) => sel.addEventListener('change', resetLeadPage));
+  $('#btnRefreshLeads', v)?.addEventListener('click', () => show('leads'));
+  $('#btnPrevLeadPage', v)?.addEventListener('click', () => changeLeadPage(-1));
+  $('#btnNextLeadPage', v)?.addEventListener('click', () => changeLeadPage(1));
+  $$('.open-lead-btn', v).forEach((btn) => {
+    btn.addEventListener('click', () => openLead(btn.dataset.leadId));
+  });
 
   window.bindClassifierBarEvents?.(
     () => {
@@ -502,24 +537,50 @@ function resetLeadPage() {
 async function pipeline(v) {
   const data = await api('/api/leads?view=summary');
   const stages = META.status || ['NOVO','QUALIFICADO','CONTATADO','VISITA','PROPOSTA','CLIENTE','DESCARTADO'];
+  if (!MOBILE_PIPELINE_STAGE || !stages.includes(MOBILE_PIPELINE_STAGE)) {
+    MOBILE_PIPELINE_STAGE = stages[0] || 'NOVO';
+  }
+  const counts = {};
+  for (const st of stages) counts[st] = data.items.filter((x) => x.status === st);
+
+  const mobileTabs = `
+    <div class="kanban-mobile-tabs" role="tablist" aria-label="Estágios do Pipeline">
+      ${stages.map((st) => `
+        <button type="button" class="mode-pill kanban-mobile-tab ${st === MOBILE_PIPELINE_STAGE ? 'active' : ''}" data-stage="${esc(st)}">
+          ${esc(st)} (${counts[st].length})
+        </button>
+      `).join('')}
+    </div>`;
+
   const cols = stages.map((st) => {
-    const items = data.items.filter((x) => x.status === st);
-    return `<div class="kanban-col">
+    const items = counts[st];
+    return `<div class="kanban-col ${st === MOBILE_PIPELINE_STAGE ? 'mobile-active' : ''}" data-stage="${esc(st)}">
       <h4>${esc(st)} <span class="badge">${items.length}</span></h4>
       ${items.slice(0, 40).map((x) => `
-        <div class="kanban-card" onclick="openLead('${x.id}')">
+        <div class="kanban-card" data-lead-id="${esc(x.id)}">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:4px">
             <strong>${esc(x.nome_fantasia)}</strong>
             ${window.renderOriginBadge?.(x) || ''}
           </div>
-          <div class="muted">${esc(x.segmento)} · ${esc(x.cidade || 'GV')}</div>
+          <div class="muted">${esc(x.segmento)} · ${esc(x.cidade || '')}</div>
           <div class="muted">${esc(x.telefone || x.whatsapp || 'sem tel')}</div>
           <span class="badge ${esc(x.potencial)}">${esc(x.potencial)}</span>
         </div>`).join('') || '<p class="muted">—</p>'}
     </div>`;
   }).join('');
-  v.innerHTML = `<div class="kanban">${cols}</div>
+  v.innerHTML = `${mobileTabs}<div class="kanban">${cols}</div>
     <p class="muted" style="margin-top:10px">Clique no card para contatar / converter. Máx. 40 por coluna na visualização.</p>`;
+
+  $$('.kanban-mobile-tab', v).forEach((tab) => {
+    tab.addEventListener('click', () => {
+      MOBILE_PIPELINE_STAGE = tab.dataset.stage;
+      $$('.kanban-mobile-tab', v).forEach((t) => t.classList.toggle('active', t === tab));
+      $$('.kanban-col', v).forEach((c) => c.classList.toggle('mobile-active', c.dataset.stage === MOBILE_PIPELINE_STAGE));
+    });
+  });
+  $$('.kanban-card', v).forEach((card) => {
+    card.addEventListener('click', () => openLead(card.dataset.leadId));
+  });
 }
 
 async function agenda(v) {
@@ -529,11 +590,14 @@ async function agenda(v) {
   const [late, today, week] = await Promise.all([
     api('/api/followups?period=atrasado'), api('/api/followups?period=hoje'), api('/api/followups?period=semana'),
   ]);
-  const column = (title, items, empty) => `<section class="panel"><h3>${title} <span class="badge">${items.length}</span></h3>${items.map((x) => `<button class="queue-item" onclick="openLead('${x.id}')"><strong>${esc(x.nome_fantasia)}</strong><span>${esc(x.proximo_contato)} · ${esc(x.cidade || 'Governador Valadares')} · ${esc(x.status)}</span><small>${esc(x.proximo_contato_nota || 'Sem observação')}</small></button>`).join('') || `<p class="muted">${empty}</p>`}</section>`;
+  const defaultCity = window.AppPorts?.config?.get?.()?.tenant?.default_city || 'Governador Valadares';
+  const column = (title, items, empty) => `<section class="panel"><h3>${title} <span class="badge">${items.length}</span></h3>${items.map((x) => `<button type="button" class="queue-item agenda-fallback-lead" data-lead-id="${esc(x.id)}"><strong>${esc(x.nome_fantasia)}</strong><span>${esc(x.proximo_contato)} · ${esc(x.cidade || defaultCity)} · ${esc(x.status)}</span><small>${esc(x.proximo_contato_nota || 'Sem observação')}</small></button>`).join('') || `<p class="muted">${empty}</p>`}</section>`;
   v.innerHTML = `<div class="grid followup-grid">${column('Atrasados', late.items, 'Nenhum retorno atrasado.')}${column('Hoje', today.items, 'Nenhum retorno para hoje.')}${column('Próximos 7 dias', week.items, 'Nenhum retorno agendado para esta semana.')}</div>`;
+  $$('.agenda-fallback-lead', v).forEach((btn) => btn.addEventListener('click', () => openLead(btn.dataset.leadId)));
 }
 
 function novo(v) {
+  const defaultCity = window.AppPorts?.config?.get?.()?.tenant?.default_city || 'Governador Valadares';
   v.innerHTML = `
     <div class="panel">
       <form id="leadForm" class="form">
@@ -550,7 +614,7 @@ function novo(v) {
         <div class="field"><label>Website</label><input name="website" /></div>
         <div class="field full"><label>Endereço</label><input name="endereco" /></div>
         <div class="field"><label>Bairro</label><input name="bairro" /></div>
-        <div class="field"><label>Cidade</label><input name="cidade" value="Governador Valadares" /></div>
+        <div class="field"><label>Cidade</label><input name="cidade" value="${esc(defaultCity)}" /></div>
         <div class="field"><label>Potencial</label>
           <select name="potencial">${META.potencial.map((s) => `<option value="${s}" ${s === 'MEDIO' ? 'selected' : ''}>${s}</option>`).join('')}</select>
         </div>
@@ -599,7 +663,7 @@ function templatesView(v) {
           <h3 style="margin:0">Personalização de Mensagens Automáticas & Scripts</h3>
           <p class="muted" style="margin:4px 0 0">Edite e salve os textos que são sugeridos no WhatsApp e E-mail. As variáveis são preenchidas dinamicamente com o perfil e lead ativo.</p>
         </div>
-        <button class="btn" onclick="resetTemplatesToDefault()">Restaurar Padrões de Fábrica</button>
+        <button type="button" class="btn" id="btnResetTemplates">Restaurar Padrões de Fábrica</button>
       </div>
 
       <div class="form" style="margin-top:16px">
@@ -647,27 +711,35 @@ function templatesView(v) {
     $('#templatePreviewBox').textContent = preview;
   }
 
-  $('#templateSelector').onchange = (e) => {
+  $('#templateSelector')?.addEventListener('change', (e) => {
     currentKey = e.target.value;
     const tmpls = getCustomTemplates();
     $('#templateEditorText').value = tmpls[currentKey] || DEFAULT_TEMPLATES[currentKey] || '';
     updatePreview();
-  };
+  });
 
-  $('#templateEditorText').oninput = updatePreview;
+  $('#templateEditorText')?.addEventListener('input', updatePreview);
   updatePreview();
 
-  $('#btnSalvarTemplate').onclick = () => {
+  $('#btnResetTemplates')?.addEventListener('click', resetTemplatesToDefault);
+  $('#btnSalvarTemplate')?.addEventListener('click', () => {
     const tmpls = getCustomTemplates();
     tmpls[currentKey] = $('#templateEditorText').value;
     saveCustomTemplates(tmpls);
     toast('Modelo de mensagem salvo com sucesso!');
-  };
+  });
 }
 
-function resetTemplatesToDefault() {
-  if (!confirm('Deseja restaurar todas as mensagens automáticas para o padrão original da AutonomIA Systems?')) return;
-  localStorage.removeItem('autonomia_custom_templates');
+async function resetTemplatesToDefault() {
+  const brand = window.AppPorts?.config?.get?.()?.tenant?.brand_name || 'AutonomIA Systems';
+  const ok = await window.RuntimeAdapter?.confirmDialog({
+    title: 'Restaurar Modelos Padrão',
+    message: `Deseja restaurar todas as mensagens automáticas para o padrão original da ${brand}?`,
+    confirmLabel: 'Restaurar',
+    danger: true,
+  });
+  if (!ok) return;
+  window.RuntimeAdapter?.removeStorage('autonomia_custom_templates');
   toast('Modelos restaurados!');
   show('templates');
 }
@@ -810,29 +882,29 @@ async function openLead(id) {
           <div style="margin-top:4px">${window.renderPainBadges?.(evalRes.etiquetas_dor) || ''}</div>
           ${socios.length ? `<p class="muted" style="margin:4px 0 0">👥 Sócios: <strong>${esc(socios.join(', '))}</strong></p>` : ''}
         </div>
-        <button class="btn" onclick="$('#modal').classList.add('hidden')">Fechar</button>
+        <button type="button" class="btn" id="btnCloseLeadModal">Fechar</button>
       </div>
 
       <div class="contact-bar" style="display:flex;flex-wrap:wrap;gap:8px;margin:14px 0">
-        ${tel ? `<a class="btn primary" href="tel:${esc(phoneDigits(tel))}" onclick="logRascunho('${x.id}','ligacao')">📞 Ligar</a>` : '<span class="btn" style="opacity:.5">Sem telefone</span>'}
-        ${wa ? `<button class="btn good" onclick="openWhatsAppDraft('${x.id}')">💬 Abrir rascunho no WhatsApp</button>` : '<span class="muted">Sem WhatsApp disponível/verificado.</span>'}
-        ${x.email ? `<a class="btn" href="mailto:${esc(x.email)}?subject=${encodeURIComponent('AutonomIA Systems — Contato Consultivo')}&body=${encodeURIComponent(msgTemplate(x, stage))}" onclick="logRascunho('${x.id}','email')">✉️ E-mail</a>` : ''}
-        <button class="btn" id="btnDiagnoseSingle" onclick="diagnoseSingleLead('${x.id}')">🔬 Diagnosticar Lead</button>
-        <button class="btn" style="border-color:var(--cyan);color:var(--cyan)" onclick="openLookalikeForLead('${x.id}')">🎯 Encontrar Parecidos (Lookalike)</button>
-        <button class="btn" style="background:#1e3152;color:#fff;border:1px solid var(--border)" onclick="registrarContato('${x.id}','whatsapp')">${isCliente ? 'Registrar contato' : 'Marcar contato como enviado'}</button>
-        ${!isCliente ? `<button class="btn good" onclick="converterLead('${x.id}')">✅ Tornar cliente</button>` : '<span class="badge CLIENTE">Já é cliente</span>'}
+        ${tel ? `<button type="button" class="btn primary" id="btnModalCall">📞 Ligar</button>` : '<span class="btn" style="opacity:.5">Sem telefone</span>'}
+        ${wa ? `<button type="button" class="btn good" id="btnModalWaDraft">💬 Abrir rascunho no WhatsApp</button>` : '<span class="muted">Sem WhatsApp disponível/verificado.</span>'}
+        ${x.email ? `<button type="button" class="btn" id="btnModalEmail">✉️ E-mail</button>` : ''}
+        <button type="button" class="btn" id="btnDiagnoseSingle">🔬 Diagnosticar Lead</button>
+        <button type="button" class="btn" id="btnOpenLookalike" style="border-color:var(--cyan);color:var(--cyan)">🎯 Encontrar Parecidos (Lookalike)</button>
+        <button type="button" class="btn" id="btnRegistrarContato" style="background:#1e3152;color:#fff;border:1px solid var(--border)">${isCliente ? 'Registrar contato' : 'Marcar contato como enviado'}</button>
+        ${!isCliente ? `<button type="button" class="btn good" id="btnConverterLead">✅ Tornar cliente</button>` : '<span class="badge CLIENTE">Já é cliente</span>'}
       </div>
 
       <div class="panel" style="margin:0 0 12px;padding:12px">
         <strong>Mensagem sugerida — confira antes de enviar</strong>
-        <div class="field" style="margin-top:8px"><label for="messageStage">Situação</label><select id="messageStage" onchange="updateMessageTemplate('${x.id}')">${Object.entries(TEMPLATE_LABELS).map(([key,label]) => `<option value="${key}" ${stage === key ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
+        <div class="field" style="margin-top:8px"><label for="messageStage">Situação</label><select id="messageStage">${Object.entries(TEMPLATE_LABELS).map(([key,label]) => `<option value="${key}" ${stage === key ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
         <textarea id="contactMessage" class="contact-script" rows="4">${esc(msgTemplate(x, stage))}</textarea>
         <div class="actions">
-          <button class="btn" onclick="copyMessage()">Copiar mensagem</button>
-          ${wa ? `<button class="btn good" onclick="openWhatsAppDraft('${x.id}')">Abrir WhatsApp</button>` : ''}
-          <button class="btn" style="border-color:var(--cyan);color:var(--cyan)" onclick="saveCurrentMessageAsTemplate('${x.id}')">💾 Salvar como novo modelo padrão desta etapa</button>
+          <button type="button" class="btn" id="btnCopyMsg">Copiar mensagem</button>
+          ${wa ? `<button type="button" class="btn good" id="btnOpenWaMsg">Abrir WhatsApp</button>` : ''}
+          <button type="button" class="btn" id="btnSaveMsgTemplate" style="border-color:var(--cyan);color:var(--cyan)">💾 Salvar como novo modelo padrão desta etapa</button>
         </div>
-        <p class="muted">O app apenas prepara o texto. Você pode editar o texto acima para este envio ou salvá-lo como o novo padrão da AutonomIA Systems.</p>
+        <p class="muted">O app apenas prepara o texto. Você pode editar o texto acima para este envio ou salvá-lo como o novo padrão da equipe.</p>
       </div>
 
       <div class="form" style="margin-top:8px">
@@ -863,9 +935,9 @@ async function openLead(id) {
         <div class="field"><label>Nota do follow-up</label><input id="edFollowNota" value="${esc(x.proximo_contato_nota || '')}" placeholder="Ex.: retornar com tabela" /></div>
       </div>
       <div class="actions">
-        <button class="btn primary" onclick="saveLead('${x.id}')">Salvar</button>
-        <button class="btn" onclick="salvarFollowUp('${x.id}')">Agendar follow-up</button>
-        <button class="btn" onclick="if(confirm('Excluir?'))delLead('${x.id}')">Excluir</button>
+        <button type="button" class="btn primary" id="btnSaveLead">Salvar</button>
+        <button type="button" class="btn" id="btnSaveFollowup">Agendar follow-up</button>
+        <button type="button" class="btn" id="btnDeleteLead">Excluir</button>
       </div>
 
       <hr style="border-color:var(--border);margin:16px 0" />
@@ -879,7 +951,7 @@ async function openLead(id) {
         </div>
         <div class="field full"><label>Resumo</label><input id="ixResumo" placeholder="Ex.: Atendeu, pediu demonstração do sistema / agente no WhatsApp" /></div>
       </div>
-      <div class="actions"><button class="btn good" onclick="addIx('${x.id}')">Registrar</button></div>
+      <div class="actions"><button type="button" class="btn good" id="btnAddIx">Registrar</button></div>
       <ul style="color:var(--muted);line-height:1.6;max-height:180px;overflow:auto">
         ${(interacoes || []).map((i) => `<li><strong>${esc(i.tipo)}</strong> · ${esc(i.resumo)} <span style="opacity:.7">(${new Date(i.criado_em).toLocaleString('pt-BR')})</span></li>`).join('') || '<li>Nenhuma interação ainda.</li>'}
       </ul>
@@ -890,6 +962,38 @@ async function openLead(id) {
       ${x.email ? `<p class="muted">✉️ ${esc(x.email)}</p>` : ''}
       ${x.convertido_em ? `<p class="muted">Convertido em: ${new Date(x.convertido_em).toLocaleString('pt-BR')}${x.pedido_inicial ? ' · 1º pedido: ' + esc(x.pedido_inicial) : ''}</p>` : ''}
     </div>`;
+
+  $('#btnCloseLeadModal', m)?.addEventListener('click', () => m.classList.add('hidden'));
+  $('#btnModalCall', m)?.addEventListener('click', () => {
+    window.AppPorts?.outputActions?.callPhone?.(tel, x);
+    logRascunho(x.id, 'ligacao');
+  });
+  $('#btnModalWaDraft', m)?.addEventListener('click', () => openWhatsAppDraft(x.id));
+  $('#btnModalEmail', m)?.addEventListener('click', () => {
+    const brand = window.AppPorts?.config?.get?.()?.tenant?.brand_name || 'AutonomIA Systems';
+    window.AppPorts?.outputActions?.openEmail?.(x.email, `${brand} — Contato Consultivo`, msgTemplate(x, stage), x);
+    logRascunho(x.id, 'email');
+  });
+  $('#btnDiagnoseSingle', m)?.addEventListener('click', () => window.diagnoseSingleLead?.(x.id));
+  $('#btnOpenLookalike', m)?.addEventListener('click', () => window.openLookalikeForLead?.(x.id));
+  $('#btnRegistrarContato', m)?.addEventListener('click', () => registrarContato(x.id, 'whatsapp'));
+  $('#btnConverterLead', m)?.addEventListener('click', () => converterLead(x.id));
+  $('#messageStage', m)?.addEventListener('change', () => updateMessageTemplate(x.id));
+  $('#btnCopyMsg', m)?.addEventListener('click', copyMessage);
+  $('#btnOpenWaMsg', m)?.addEventListener('click', () => openWhatsAppDraft(x.id));
+  $('#btnSaveMsgTemplate', m)?.addEventListener('click', () => saveCurrentMessageAsTemplate(x.id));
+  $('#btnSaveLead', m)?.addEventListener('click', () => saveLead(x.id));
+  $('#btnSaveFollowup', m)?.addEventListener('click', () => salvarFollowUp(x.id));
+  $('#btnDeleteLead', m)?.addEventListener('click', async () => {
+    const ok = await window.RuntimeAdapter?.confirmDialog({
+      title: 'Excluir Lead',
+      message: `Deseja realmente excluir "${x.nome_fantasia}"?`,
+      confirmLabel: 'Excluir',
+      danger: true,
+    });
+    if (ok) await delLead(x.id);
+  });
+  $('#btnAddIx', m)?.addEventListener('click', () => addIx(x.id));
   $('.modal-box', m).focus();
 }
 
@@ -908,18 +1012,8 @@ function safeLink(raw, label) {
 async function copyMessage() {
   const text = $('.contact-script')?.value || '';
   if (!text) return toast('Mensagem indisponível');
-  try {
-    await navigator.clipboard.writeText(text);
-    toast('Mensagem copiada');
-  } catch {
-    const field = document.createElement('textarea');
-    field.value = text;
-    document.body.appendChild(field);
-    field.select();
-    const copied = document.execCommand('copy');
-    field.remove();
-    toast(copied ? 'Mensagem copiada' : 'Não foi possível copiar');
-  }
+  const copied = await window.AppPorts?.outputActions?.copyText?.(text);
+  toast(copied ? 'Mensagem copiada' : 'Não foi possível copiar');
 }
 
 function updateMessageTemplate() {
@@ -960,14 +1054,19 @@ async function logRascunho(id, canal) {
 async function openWhatsAppDraft(id) {
   const lead = OPEN_LEAD?.id === id ? OPEN_LEAD : (await api('/api/leads/' + id)).item;
   if (!lead.whatsapp || lead.whatsapp_status === 'INVALIDO') return toast('WhatsApp indisponível ou marcado como inválido');
-  const url = waLink(lead.whatsapp, $('#contactMessage')?.value || msgTemplate(lead));
-  if (!url) return toast('Número de WhatsApp inválido');
-  window.open(url, '_blank', 'noopener,noreferrer');
+  const msgText = $('#contactMessage')?.value || msgTemplate(lead);
+  const res = window.AppPorts?.outputActions?.openWhatsApp?.(lead.whatsapp, msgText, lead);
+  if (!res?.ok) return toast('Número de WhatsApp inválido');
   await logRascunho(id, 'whatsapp');
 }
 
 async function registrarContato(id, channel = 'whatsapp') {
-  if (!confirm('Confirma que a mensagem ou contato foi efetivamente enviado/realizado?')) return;
+  const ok = await window.RuntimeAdapter?.confirmDialog({
+    title: 'Confirmar Contato',
+    message: 'Confirma que a mensagem ou contato foi efetivamente enviado/realizado?',
+    confirmLabel: 'Confirmar Envio',
+  });
+  if (!ok) return;
   try {
     await api('/api/leads/' + id + '/contato', { method: 'POST', body: JSON.stringify({ canal: channel, resumo: `Contato ${channel} enviado/realizado e confirmado pelo operador` }) });
     toast('Contato registrado');
@@ -976,7 +1075,12 @@ async function registrarContato(id, channel = 'whatsapp') {
 }
 
 async function converterLead(id) {
-  const pedido = prompt('1º pedido / acordo (opcional):', '');
+  const pedido = await window.RuntimeAdapter?.promptDialog({
+    title: 'Converter em Cliente',
+    message: '1º pedido / acordo (opcional):',
+    placeholder: 'Ex.: Automação WhatsApp + Site',
+    confirmLabel: 'Tornar Cliente',
+  });
   if (pedido === null) return;
   try {
     await api('/api/leads/' + id + '/converter', {

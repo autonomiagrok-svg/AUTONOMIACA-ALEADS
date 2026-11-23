@@ -217,7 +217,7 @@
             <button type="button" class="btn agenda-stage-btn" data-id="${window.esc(lead.id)}" data-status="PROPOSTA">Proposta</button>
             <button type="button" class="btn primary agenda-stage-btn" data-id="${window.esc(lead.id)}" data-status="CLIENTE">Fechar Cliente</button>
             <button type="button" class="btn agenda-stage-btn" data-id="${window.esc(lead.id)}" data-status="DESCARTADO" style="color:var(--red)">Descartar</button>
-            <button type="button" class="btn" onclick="openLead('${window.esc(lead.id)}')">Ficha</button>
+            <button type="button" class="btn agenda-open-lead-btn" data-id="${window.esc(lead.id)}">Ficha</button>
           </div>
         </div>
       </article>`;
@@ -336,16 +336,22 @@
         const phone = lead.whatsapp || lead.telefone;
 
         if (channel === 'WHATSAPP') {
-          const url = window.Hygiene?.buildWhatsAppLink(phone, msgText);
-          if (!url) return window.toast?.('WhatsApp inválido ou ausente');
-          window.open(url, '_blank', 'noopener,noreferrer');
+          const waAction = window.AppPorts?.outputActions?.openWhatsApp;
+          const res = waAction
+            ? waAction(phone, msgText, lead)
+            : { ok: Boolean(window.Hygiene?.buildWhatsAppLink(phone, msgText)) };
+          if (!res?.ok) return window.toast?.('WhatsApp inválido ou ausente');
         } else if (channel === 'LIGACAO') {
-          const d = phoneDigits(phone);
-          if (!d) return window.toast?.('Telefone ausente');
-          window.open(`tel:${d}`, '_self');
+          const callAction = window.AppPorts?.outputActions?.callPhone;
+          const res = callAction ? callAction(phone, lead) : { ok: Boolean(phoneDigits(phone)) };
+          if (!res?.ok) return window.toast?.('Telefone ausente');
         } else if (channel === 'EMAIL') {
           if (!lead.email) return window.toast?.('E-mail ausente');
-          window.open(`mailto:${lead.email}?subject=${encodeURIComponent('AutonomIA Systems — Acompanhamento')}&body=${encodeURIComponent(msgText)}`, '_blank');
+          const mailAction = window.AppPorts?.outputActions?.openEmail;
+          const brand = window.AppPorts?.config?.get?.()?.tenant?.brand_name || 'AutonomIA Systems';
+          if (mailAction) {
+            mailAction(lead.email, `${brand} — Acompanhamento`, msgText, lead);
+          }
         }
 
         const nextDate = addDaysStr(jump);
@@ -413,6 +419,10 @@
           window.toast?.('Erro: ' + err.message);
         }
       });
+    });
+
+    document.querySelectorAll('.agenda-open-lead-btn').forEach((btn) => {
+      btn.addEventListener('click', () => window.openLead?.(btn.dataset.id));
     });
 
     document.querySelectorAll('.agenda-stage-btn').forEach((btn) => {
