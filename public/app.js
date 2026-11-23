@@ -37,11 +37,23 @@ function setOperator(nome) {
 }
 
 async function api(path, opts = {}) {
+  const { _retriedAuth, ...fetchOpts } = opts;
   const r = await fetch(path, {
-    headers: { 'content-type': 'application/json', ...(opts.headers || {}) },
-    ...opts,
+    ...fetchOpts,
+    headers: {
+      'content-type': 'application/json',
+      'x-access-key': localStorage.getItem('autonomia_access_key') || '',
+      ...(fetchOpts.headers || {}),
+    },
   });
   const data = await r.json().catch(() => ({}));
+  if (r.status === 401 && data.auth_required && !_retriedAuth) {
+    const entered = window.prompt('Servidor protegido. Digite a chave de acesso:');
+    if (entered !== null && entered.trim()) {
+      localStorage.setItem('autonomia_access_key', entered.trim());
+      return api(path, { ...fetchOpts, _retriedAuth: true });
+    }
+  }
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
 }

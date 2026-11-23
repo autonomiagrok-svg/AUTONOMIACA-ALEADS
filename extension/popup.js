@@ -55,26 +55,29 @@ function setDeepRunning(running, text = '') {
 
 async function checkHealth() {
   const badge = $('statusBadge');
-  serverUrl = $('serverUrl').value.trim() || DEFAULT_SERVER_URL;
-  await chrome.storage.local.set({ serverUrl });
+  serverUrl = $('serverUrl').value.trim().replace(/\/+$/, '') || DEFAULT_SERVER_URL;
+  const accessKey = $('accessKey')?.value?.trim() || '';
+  await chrome.storage.local.set({ serverUrl, accessKey });
 
-  chrome.runtime.sendMessage({ type: 'CHECK_HEALTH', serverUrl }, (res) => {
+  chrome.runtime.sendMessage({ type: 'CHECK_HEALTH', serverUrl, accessKey }, (res) => {
     if (chrome.runtime.lastError || !res?.ok) {
       badge.textContent = 'Offline';
       badge.className = 'badge offline';
       return;
     }
-    const host = serverUrl.replace(/^https?:\/\//, '');
-    badge.textContent = `Online em ${host}`;
+    const envLabel = /onrender\.com/i.test(serverUrl) ? 'Render' : 'Local';
+    badge.textContent = `Online (${envLabel})`;
+    badge.title = serverUrl;
     badge.className = 'badge online';
   });
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  const stored = await chrome.storage.local.get(['capturedLeads', 'serverUrl']);
+  const stored = await chrome.storage.local.get(['capturedLeads', 'serverUrl', 'accessKey']);
   queue = Array.isArray(stored.capturedLeads) ? stored.capturedLeads : [];
   serverUrl = stored.serverUrl || DEFAULT_SERVER_URL;
   $('serverUrl').value = serverUrl;
+  if ($('accessKey')) $('accessKey').value = stored.accessKey || '';
   updateQueueUI();
   checkHealth();
 
@@ -151,9 +154,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('btnEnviar').addEventListener('click', () => {
     if (!queue.length) return;
     $('btnEnviar').disabled = true;
-    serverUrl = $('serverUrl').value.trim() || DEFAULT_SERVER_URL;
+    serverUrl = $('serverUrl').value.trim().replace(/\/+$/, '') || DEFAULT_SERVER_URL;
+    const accessKey = $('accessKey')?.value?.trim() || '';
 
-    chrome.runtime.sendMessage({ type: 'SEND_LEADS', serverUrl, leads: queue }, async (res) => {
+    chrome.runtime.sendMessage({ type: 'SEND_LEADS', serverUrl, accessKey, leads: queue }, async (res) => {
       $('btnEnviar').disabled = false;
       if (chrome.runtime.lastError || !res?.ok) {
         showFeedback(`Falha no envio: ${res?.error || chrome.runtime.lastError?.message || 'servidor offline'}`, true);

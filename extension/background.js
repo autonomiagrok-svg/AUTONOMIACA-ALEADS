@@ -1,17 +1,22 @@
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:3100';
 
-async function resolveBaseUrl(explicitUrl) {
-  if (explicitUrl) return String(explicitUrl).trim().replace(/\/+$/, '');
+async function resolveConnection(explicitUrl, explicitKey) {
+  let stored = {};
   try {
-    const stored = await chrome.storage.local.get(['serverUrl']);
-    return String(stored.serverUrl || DEFAULT_SERVER_URL).trim().replace(/\/+$/, '');
+    stored = await chrome.storage.local.get(['serverUrl', 'accessKey']);
   } catch {
-    return DEFAULT_SERVER_URL;
+    stored = {};
   }
+  const baseUrl = String(explicitUrl || stored.serverUrl || DEFAULT_SERVER_URL).trim().replace(/\/+$/, '');
+  const accessKey = String(explicitKey !== undefined && explicitKey !== null ? explicitKey : (stored.accessKey || '')).trim();
+  return { baseUrl, accessKey };
 }
 
-async function apiJson(baseUrl, path, { method = 'GET', body = null } = {}) {
+async function apiJson(baseUrl, path, { method = 'GET', body = null, accessKey = '' } = {}) {
   const opts = { method, headers: {} };
+  if (accessKey) {
+    opts.headers['x-access-key'] = accessKey;
+  }
   if (body !== null) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -26,10 +31,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || typeof message !== 'object') return false;
 
   const handle = async () => {
-    const baseUrl = await resolveBaseUrl(message.serverUrl);
+    const { baseUrl, accessKey } = await resolveConnection(message.serverUrl, message.accessKey);
 
     if (message.type === 'CHECK_HEALTH') {
-      const data = await apiJson(baseUrl, '/api/health');
+      const data = await apiJson(baseUrl, '/api/health', { accessKey });
       return { ok: true, data };
     }
 
@@ -37,19 +42,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       const leads = Array.isArray(message.leads) ? message.leads : [];
       const data = await apiJson(baseUrl, '/api/ingest/maps', {
         method: 'POST',
+        accessKey,
         body: { leads, auto_diagnose: message.auto_diagnose !== false },
       });
       return { ok: true, data };
     }
 
     if (message.type === 'GET_ACTIVE_MISSION') {
-      const data = await apiJson(baseUrl, '/api/maps/mission/active');
+      const data = await apiJson(baseUrl, '/api/maps/mission/active', { accessKey });
       return { ok: true, data };
     }
 
     if (message.type === 'UPDATE_MISSION_PROGRESS') {
       const data = await apiJson(baseUrl, `/api/maps/mission/${encodeURIComponent(message.missionId)}/progress`, {
         method: 'POST',
+        accessKey,
         body: message.patch || {},
       });
       return { ok: true, data };
@@ -58,6 +65,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'SEND_MAPS_BATCH') {
       const data = await apiJson(baseUrl, '/api/ingest/maps', {
         method: 'POST',
+        accessKey,
         body: {
           leads: Array.isArray(message.leads) ? message.leads : [],
           mission_id: message.missionId || null,
@@ -71,6 +79,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'COMPLETE_MISSION') {
       const data = await apiJson(baseUrl, `/api/maps/mission/${encodeURIComponent(message.missionId)}/complete`, {
         method: 'POST',
+        accessKey,
         body: message.summary || {},
       });
       return { ok: true, data };
@@ -79,6 +88,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'STOP_MISSION') {
       const data = await apiJson(baseUrl, `/api/maps/mission/${encodeURIComponent(message.missionId)}/stop`, {
         method: 'POST',
+        accessKey,
         body: { reason: message.reason || 'Parado pelo operador no HUD do Maps' },
       });
       return { ok: true, data };

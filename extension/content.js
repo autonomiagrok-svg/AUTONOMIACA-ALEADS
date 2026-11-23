@@ -480,9 +480,17 @@
    * Runner autônomo disparado via #autonomia_mission={ID}:
    * Fase 1 (Rolagem Obrigatória até o Final) -> Fase 2 (Captura Profunda de 100% + Streaming a cada 5).
    */
-  async function runMissionAutonomous(missionId) {
+  async function runMissionAutonomous(missionId, bridgeOpts = {}) {
     if (activeMissionRunnerId === missionId) return;
-    const res = await sendBgMessage({ type: 'GET_ACTIVE_MISSION' });
+    const serverUrl = bridgeOpts.serverUrl || null;
+    const accessKey = bridgeOpts.accessKey || null;
+    const bgMissionMsg = (payload) => sendBgMessage({
+      ...payload,
+      ...(serverUrl ? { serverUrl } : {}),
+      ...(accessKey ? { accessKey } : {}),
+    });
+
+    const res = await bgMissionMsg({ type: 'GET_ACTIVE_MISSION' });
     const mission = res?.data?.mission;
     if (!mission || mission.id !== missionId || mission.status !== 'RUNNING') return;
 
@@ -491,7 +499,7 @@
 
     const checkRemoteStop = async () => {
       if (stopped) return true;
-      const latest = await sendBgMessage({ type: 'GET_ACTIVE_MISSION' });
+      const latest = await bgMissionMsg({ type: 'GET_ACTIVE_MISSION' });
       const st = latest?.data?.mission?.status;
       if (st && st !== 'RUNNING') {
         stopped = true;
@@ -503,12 +511,12 @@
     const hud = createMissionHud(mission, async () => {
       stopped = true;
       hud.setStatus('⏹️ Interrompendo e salvando buffer...');
-      await sendBgMessage({ type: 'STOP_MISSION', missionId, reason: 'Parado no HUD do Google Maps' });
+      await bgMissionMsg({ type: 'STOP_MISSION', missionId, reason: 'Parado no HUD do Google Maps' });
     });
 
     // FASE 1 — Rolagem obrigatória até o final
     hud.setStatus('📜 Fase 1: Rolando até o final da lista...');
-    await sendBgMessage({
+    await bgMissionMsg({
       type: 'UPDATE_MISSION_PROGRESS',
       missionId,
       patch: { phase: 'SCROLLING_TO_END', message: 'Fase 1 iniciada: rolando feed até o fim' },
@@ -522,7 +530,7 @@
           reachedEnd ? `✅ Fim da lista atingido! (${discovered} encontrados)` : `📜 Rolando até o final... ${discovered} encontrados`,
           'Fase 1 de 2 — Nenhum estabelecimento será deixado para trás'
         );
-        await sendBgMessage({
+        await bgMissionMsg({
           type: 'UPDATE_MISSION_PROGRESS',
           missionId,
           patch: {
@@ -544,7 +552,7 @@
     }
 
     // FASE 2 — Captura profunda de 100% dos cards descobertos
-    await sendBgMessage({
+    await bgMissionMsg({
       type: 'UPDATE_MISSION_PROGRESS',
       missionId,
       patch: {
@@ -567,7 +575,7 @@
       if (!batchBuffer.length) return;
       const toSend = batchBuffer;
       batchBuffer = [];
-      const resp = await sendBgMessage({
+      const resp = await bgMissionMsg({
         type: 'SEND_MAPS_BATCH',
         missionId,
         leads: toSend,
@@ -651,7 +659,7 @@
     if (stopped) {
       hud.finish(`⏹️ Parado (${capturedCount}/${totalToCapture} capturados · ${sentCount} enviados)`);
     } else {
-      await sendBgMessage({
+      await bgMissionMsg({
         type: 'COMPLETE_MISSION',
         missionId,
         summary: {
@@ -667,10 +675,41 @@
   }
 
   function detectMissionHash() {
-    const m = String(window.location.hash || '').match(/autonomia_mission=([a-zA-Z0-9_-]+)/);
-    if (m && m[1]) {
-      setTimeout(() => runMissionAutonomous(m[1]), 1200);
+    const hash = String(window.location.hash || '');
+    const m = hash.match(/autonomia_mission=([a-zA-Z0-9_-]+)/);
+    if (!m || !m[1]) return;
+
+    const apiMatch = hash.match(/autonomia_api=([^&]+)/);
+    const keyMatch = hash.match(/autonomia_key=([^&]+)/);
+    let apiUrl = null;
+    let accessKey = null;
+
+    if (apiMatch && apiMatch[1]) {
+      try {
+        apiUrl = decodeURIComponent(apiMatch[1]).trim().replace(/\/+$/, '');
+      } catch {
+        apiUrl = null;
+      }
     }
+    if (keyMatch && keyMatch[1]) {
+      try {
+        accessKey = decodeURIComponent(keyMatch[1]).trim();
+      } catch {
+        accessKey = null;
+      }
+    }
+
+    if (apiUrl) {
+      const toStore = { serverUrl: apiUrl };
+      if (accessKey !== null) toStore.accessKey = accessKey;
+      try {
+        chrome.storage?.local?.set?.(toStore);
+      } catch {
+        // Ignora se storage indisponível
+      }
+    }
+
+    setTimeout(() => runMissionAutonomous(m[1], { serverUrl: apiUrl, accessKey }), 1200);
   }
 
   // Modo Manual pelo Popup: agora também executa Fase 1 (Rolagem até o final) + Fase 2 (100% dos cards)

@@ -27,7 +27,8 @@ import {
 } from './src/maps_mission.js';
 
 const PORT = Number(process.env.PORT || 3100);
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
+const APP_ACCESS_KEY = String(process.env.APP_ACCESS_KEY || '').trim();
 const publicDir = path.resolve(process.cwd(), 'public');
 const sharedFiles = {
   '/shared/hygiene.js': path.resolve(process.cwd(), 'src', 'hygiene.js'),
@@ -55,7 +56,7 @@ function applyCors(req, res) {
     res.setHeader('access-control-allow-origin', origin);
     res.setHeader('vary', 'Origin');
     res.setHeader('access-control-allow-methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('access-control-allow-headers', 'Content-Type, Authorization');
+    res.setHeader('access-control-allow-headers', 'Content-Type, Authorization, x-access-key');
   }
 }
 
@@ -128,6 +129,17 @@ async function route(req, res) {
   const u = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
   const p = u.pathname;
   const method = req.method;
+
+  if (method === 'GET' && p === '/api/auth/status') {
+    return send(res, 200, { protected: Boolean(APP_ACCESS_KEY) });
+  }
+
+  if (APP_ACCESS_KEY && p.startsWith('/api/') && !(method === 'GET' && (p === '/api/health' || p === '/api/auth/status'))) {
+    const providedKey = String(req.headers['x-access-key'] || u.searchParams.get('key') || '').trim();
+    if (providedKey !== APP_ACCESS_KEY) {
+      return send(res, 401, { error: 'Chave de acesso inválida ou ausente', auth_required: true });
+    }
+  }
 
   if (method === 'GET' && p === '/api/health') {
     return send(res, 200, {

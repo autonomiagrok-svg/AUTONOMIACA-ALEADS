@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
   <meta charset="UTF-8" />
   <title>AutonomIA Caça Leads</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
+
 <body>
   <div class="wrap">
     <header class="hdr">
@@ -16,10 +18,13 @@
     </header>
 
     <section class="card">
-      <label for="serverUrl">Servidor Local</label>
+      <label for="serverUrl">Servidor (Local ou Render)</label>
       <div class="row">
         <input id="serverUrl" type="url" value="http://127.0.0.1:3100" placeholder="http://127.0.0.1:3100" />
         <button id="btnTestar" class="btn secondary" type="button">Testar</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <input id="accessKey" type="password" placeholder="Chave de acesso (opcional)" />
       </div>
     </section>
 
@@ -33,7 +38,8 @@
 
     <section class="card">
       <div class="row">
-        <button id="btnCapturaProfunda" class="btn deep" type="button">Captura Profunda (Rolar até o Fim + Tel/Site)</button>
+        <button id="btnCapturaProfunda" class="btn deep" type="button">Captura Profunda (Rolar até o Fim +
+          Tel/Site)</button>
         <button id="btnPararProfunda" class="btn danger hidden" type="button">Parar</button>
       </div>
       <div id="deepProgress" class="progress hidden"></div>
@@ -51,4 +57,5 @@
   </div>
   <script src="popup.js"></script>
 </body>
+
 </html>

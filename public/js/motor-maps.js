@@ -29,14 +29,10 @@
     if (!Array.isArray(leads) || !leads.length) {
       throw new Error('Nenhum lead encontrado no JSON (esperado { "leads": [...] })');
     }
-    const res = await fetch('/api/ingest/maps', {
+    return await window.api('/api/ingest/maps', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ leads, auto_diagnose: true }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Erro HTTP ${res.status}`);
-    return data;
   }
 
   function openManualPasteModal() {
@@ -364,7 +360,15 @@
         });
         ACTIVE_MISSION = res.mission;
         refreshMonitorDom();
-        window.open(res.start_url, '_blank', 'noopener,noreferrer');
+        const accessKey = localStorage.getItem('autonomia_access_key') || '';
+        let startUrl = res.start_url;
+        if (startUrl && startUrl.includes('#')) {
+          startUrl += `&autonomia_api=${encodeURIComponent(window.location.origin)}`;
+          if (accessKey) {
+            startUrl += `&autonomia_key=${encodeURIComponent(accessKey)}`;
+          }
+        }
+        window.open(startUrl, '_blank', 'noopener,noreferrer');
         startPolling();
         window.toast?.(`Missão iniciada: "${res.mission.query}". A extensão vai rolar até o final e capturar tudo!`);
       } catch (err) {
