@@ -191,9 +191,17 @@
     document.getElementById('btnMissionDialer')?.addEventListener('click', async () => {
       const ids = ACTIVE_MISSION?.lead_ids_acionaveis || [];
       if (!ids.length) return;
-      const res = await window.api('/api/leads');
-      const byId = new Map((res.items || []).map((l) => [l.id, l]));
-      const queue = ids.map((id) => byId.get(id)).filter(Boolean);
+      const loteQuery = ACTIVE_MISSION?.lote_origem
+        ? `/api/leads?lote=${encodeURIComponent(ACTIVE_MISSION.lote_origem)}`
+        : '/api/leads?view=summary';
+      let res = await window.api(loteQuery);
+      let byId = new Map((res.items || []).map((l) => [l.id, l]));
+      let queue = ids.map((id) => byId.get(id)).filter(Boolean);
+      if (!queue.length && ACTIVE_MISSION?.lote_origem) {
+        res = await window.api('/api/leads');
+        byId = new Map((res.items || []).map((l) => [l.id, l]));
+        queue = ids.map((id) => byId.get(id)).filter(Boolean);
+      }
       const activeLens = window.getActiveLensOrMode?.();
       const offerContext = typeof activeLens === 'object' ? activeLens.oferta_contexto : null;
       stopPolling();

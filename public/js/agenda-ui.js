@@ -43,16 +43,22 @@
 
   window.refreshAgendaBadge = async function refreshAgendaBadge(prefetchedLeads = null) {
     const badge = document.getElementById('agendaBadge');
-    if (!badge || !window.CadenceEngine) return;
+    if (!badge) return;
     try {
-      const rows = prefetchedLeads || (await window.api('/api/leads')).items || [];
-      const lensOrMode = window.getActiveLensOrMode?.() || window.getActiveScoringMode?.() || 'equilibrado';
       let urgent = 0;
-      for (const lead of rows) {
-        const c = window.CadenceEngine.analyzeLeadCadence(lead, { modeId: lensOrMode });
-        if (['ATRASADO', 'HOJE', 'PROPOSTA_PARADA', 'SEM_RESPOSTA', 'POS_VENDA'].includes(c.bucket)) {
-          urgent++;
+      if (Array.isArray(prefetchedLeads)) {
+        if (!window.CadenceEngine) return;
+        const lensOrMode = window.getActiveLensOrMode?.() || window.getActiveScoringMode?.() || 'equilibrado';
+        for (const lead of prefetchedLeads) {
+          const c = window.CadenceEngine.analyzeLeadCadence(lead, { modeId: lensOrMode });
+          if (['ATRASADO', 'HOJE', 'PROPOSTA_PARADA', 'SEM_RESPOSTA', 'POS_VENDA'].includes(c.bucket)) {
+            urgent++;
+          }
         }
+      } else {
+        const modeId = window.getActiveScoringMode?.() || 'equilibrado';
+        const summary = await window.api(`/api/agenda/summary?mode=${encodeURIComponent(modeId)}`);
+        urgent = Number(summary?.urgentes_hoje || 0);
       }
       badge.textContent = String(urgent);
       badge.classList.toggle('hidden', urgent === 0);

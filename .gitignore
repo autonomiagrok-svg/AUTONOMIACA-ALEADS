@@ -6,6 +6,7 @@ node_modules/
 Thumbs.db
 data/leads.json
 data/lenses.json
+data/config.json
 data/lenses.json.tmp*
 data/*.wal.ndjson
 data/*.tmp

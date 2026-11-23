@@ -359,6 +359,7 @@ async function leads(v) {
   if (origem) params.set('origem', origem);
   if (lote) params.set('lote', lote);
   if (sort) params.set('sort', sort);
+  params.set('view', 'summary');
   const data = await api('/api/leads?' + params.toString());
   LAST_LOADED_LEADS = data.items || [];
   renderLeadsView(v, { ...LEAD_FILTERS });
@@ -499,7 +500,7 @@ function resetLeadPage() {
 
 
 async function pipeline(v) {
-  const data = await api('/api/leads');
+  const data = await api('/api/leads?view=summary');
   const stages = META.status || ['NOVO','QUALIFICADO','CONTATADO','VISITA','PROPOSTA','CLIENTE','DESCARTADO'];
   const cols = stages.map((st) => {
     const items = data.items.filter((x) => x.status === st);

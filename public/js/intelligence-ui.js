@@ -513,6 +513,15 @@
       </div>`;
   }
 
+  async function ensureSummaryLeadsLoaded() {
+    if (Array.isArray(intelState.allLeads) && intelState.allLeads.length > 0) {
+      return intelState.allLeads;
+    }
+    const res = await window.api('/api/leads?view=summary');
+    intelState.allLeads = res.items || [];
+    return intelState.allLeads;
+  }
+
   function renderIntelligence(container) {
     let bodyHtml = '';
     if (intelState.subtab === 'lenses') bodyHtml = renderLensesTab();
@@ -533,7 +542,11 @@
         }
         if (intelState.subtab === 'territory') {
           const modeId = window.getActiveScoringMode?.() || 'equilibrado';
-          intelState.territoryData = await window.api(`/api/intelligence/territory?mode=${encodeURIComponent(modeId)}`);
+          const [, terRes] = await Promise.all([
+            ensureSummaryLeadsLoaded(),
+            window.api(`/api/intelligence/territory?mode=${encodeURIComponent(modeId)}`),
+          ]);
+          intelState.territoryData = terRes;
         }
         if (intelState.subtab === 'matrix' && !intelState.matrixData) {
           intelState.matrixData = await window.api('/api/intelligence/matrix');
@@ -667,10 +680,11 @@
 
     // Sub-aba Território & Lookalike
     document.querySelectorAll('.btn-hunt-cluster').forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const idx = Number(btn.dataset.idx);
         const bol = intelState.territoryData?.bolsoes?.[idx];
         if (!bol || !bol.lead_ids_prontos?.length) return;
+        await ensureSummaryLeadsLoaded();
         const byId = new Map(intelState.allLeads.map((l) => [l.id, l]));
         const queueLeads = bol.lead_ids_prontos.map((id) => byId.get(id)).filter(Boolean);
         const activeLens = window.getActiveLensOrMode?.();
@@ -739,13 +753,14 @@
     });
 
     document.querySelectorAll('.btn-hunt-quad').forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const key = btn.dataset.quad;
         const q = intelState.matrixData?.quadrantes?.[key];
         const targetIds = intelState.includeLandline
           ? (q?.lead_ids_prontos_com_fixo || q?.lead_ids || [])
           : (q?.lead_ids_prontos_celular || []);
         if (!q || !targetIds.length) return;
+        await ensureSummaryLeadsLoaded();
         const byId = new Map(intelState.allLeads.map((l) => [l.id, l]));
         const queueLeads = targetIds.map((id) => byId.get(id)).filter(Boolean);
         const activeLens = window.getActiveLensOrMode?.();
@@ -855,8 +870,9 @@
   window.renderIntelligenceCockpit = async function renderIntelligenceCockpit(container) {
     await window.loadCustomLenses();
     const modeId = window.getActiveScoringMode?.() || 'equilibrado';
+    intelState.allLeads = [];
     const [leadsRes, calRes, terRes, matRes, healthRes] = await Promise.all([
-      window.api('/api/leads'),
+      intelState.subtab === 'territory' ? window.api('/api/leads?view=summary') : Promise.resolve({ items: [] }),
       window.api('/api/intelligence/calibration'),
       window.api(`/api/intelligence/territory?mode=${encodeURIComponent(modeId)}`),
       window.api('/api/intelligence/matrix'),
