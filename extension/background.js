@@ -35,6 +35,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     if (message.type === 'CHECK_HEALTH') {
       const data = await apiJson(baseUrl, '/api/health', { accessKey });
+      const verifyHeaders = accessKey ? { 'x-access-key': accessKey } : {};
+      const verifyRes = await fetch(`${baseUrl}/api/auth/verify`, { method: 'GET', headers: verifyHeaders });
+      if (verifyRes.status === 401) {
+        const verifyData = await verifyRes.json().catch(() => ({}));
+        return {
+          ok: false,
+          auth_error: true,
+          error: verifyData.error || 'Chave de acesso inválida ou ausente',
+        };
+      }
+      if (!verifyRes.ok) {
+        throw new Error(`HTTP ${verifyRes.status}`);
+      }
       return { ok: true, data };
     }
 

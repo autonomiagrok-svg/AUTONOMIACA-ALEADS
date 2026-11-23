@@ -223,8 +223,9 @@ th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
   align-items: center;
 }
 .kanban-card {
-  background: #fff;
-  border: 1px solid var(--border, #d9e1ee);
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
   margin-bottom: 8px;
@@ -232,18 +233,13 @@ th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
   font-size: .85rem;
 }
 .kanban-card:hover {
-  border-color: var(--orange, #f47721);
+  border-color: var(--orange);
 }
 .contact-bar .btn {
   text-decoration: none;
   display: inline-flex;
   align-items: center;
 }
-.badge.CLIENTE { background: var(--navy); color: #fff; }
-.badge.CONTATADO { background: var(--orange); color: #fff; }
-.badge.PROPOSTA { background: var(--navy); color: #fff; }
-.badge.VISITA { background: var(--orange); color: #fff; }
-.badge.DESCARTADO { background: #edf0f5; color: var(--navy); }
 .followup-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); align-items: start; }
 .queue-item { display: flex; flex-direction: column; gap: 5px; width: 100%; margin: 5px 0; padding: 11px; text-align: left; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
 .queue-item:hover { border-color: var(--orange); }

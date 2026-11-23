@@ -84,15 +84,17 @@ function enqueueSave(rows) {
   cache = rows;
   const payload = JSON.stringify(rows, null, 2);
   const targetFile = lensesFile;
-  writeQueue = writeQueue.then(async () => {
-    await fs.promises.mkdir(path.dirname(targetFile), { recursive: true });
-    const tmp = `${targetFile}.tmp.${process.pid}.${crypto.randomUUID()}`;
-    await fs.promises.writeFile(tmp, payload, { encoding: 'utf8', mode: 0o600 });
-    await fs.promises.rename(tmp, targetFile);
-  }).catch((err) => {
-    console.error('Erro ao persistir lentes:', err);
-    throw err;
-  });
+  writeQueue = writeQueue
+    .catch(() => {})
+    .then(async () => {
+      await fs.promises.mkdir(path.dirname(targetFile), { recursive: true });
+      const tmp = `${targetFile}.tmp.${process.pid}.${crypto.randomUUID()}`;
+      await fs.promises.writeFile(tmp, payload, { encoding: 'utf8', mode: 0o600 });
+      await fs.promises.rename(tmp, targetFile);
+    })
+    .catch((err) => {
+      console.error('Erro ao persistir lentes:', err);
+    });
   return writeQueue;
 }
 

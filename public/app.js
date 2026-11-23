@@ -58,6 +58,47 @@ async function api(path, opts = {}) {
   return data;
 }
 
+window.downloadAuthenticatedFile = async function downloadAuthenticatedFile(url, fallbackFilename = 'download.bin', _retriedAuth = false) {
+  const r = await fetch(url, {
+    headers: {
+      'x-access-key': localStorage.getItem('autonomia_access_key') || '',
+    },
+  });
+  if (r.status === 401 && !_retriedAuth) {
+    const data = await r.json().catch(() => ({}));
+    if (data.auth_required) {
+      const entered = window.prompt('Servidor protegido. Digite a chave de acesso:');
+      if (entered !== null && entered.trim()) {
+        localStorage.setItem('autonomia_access_key', entered.trim());
+        return window.downloadAuthenticatedFile(url, fallbackFilename, true);
+      }
+    }
+    throw new Error(data.error || 'Não autorizado');
+  }
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error(data.error || r.statusText || `HTTP ${r.status}`);
+  }
+  const cd = r.headers.get('content-disposition') || '';
+  const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+  const filename = match?.[1] ? decodeURIComponent(match[1].trim()) : fallbackFilename;
+  const blob = await r.blob();
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
+};
+
+window.refreshMeta = async function refreshMeta() {
+  META = await api('/api/meta');
+  window.META = META;
+  return META;
+};
+
 function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -77,6 +118,7 @@ function toast(msg) {
 
 async function init() {
   META = await api('/api/meta');
+  window.META = META;
   if (!Array.isArray(META.segmentos) || !Array.isArray(META.status)) throw new Error('Configuração inválida recebida do servidor');
   await window.loadCustomLenses?.();
   
@@ -105,6 +147,9 @@ async function init() {
   });
   $('#importCsvButton').addEventListener('click', () => $('#importCsvFile').click());
   $('#importCsvFile').addEventListener('change', importCsvFile);
+  $('#exportCsvButton')?.addEventListener('click', () => {
+    window.downloadAuthenticatedFile('/api/export.csv', 'autonomia-systems-caca-leads.csv').catch((err) => toast(err.message));
+  });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden');
   });
@@ -204,7 +249,9 @@ async function commitImportPreview() {
       const result = await api('/api/import', { method: 'POST', body: JSON.stringify({ items, include_indices: include, allow_duplicates: allowDuplicates, batch_prefix: 'CSV' }) });
       added += result.added; total = result.total; offset += items.length;
     }
-    closeImportPreview(); toast(`${added} leads importados · ${total} na base`);
+    closeImportPreview();
+    await window.refreshMeta?.();
+    toast(`${added} leads importados · ${total} na base`);
     $$('.nav').forEach((x) => x.classList.toggle('active', x.dataset.view === 'leads'));
     show('leads');
   } catch (error) { toast(error.message); }
@@ -271,13 +318,13 @@ async function dashboard(v) {
       <p style="margin-top:12px;color:var(--muted)">Clientes: <strong>${s.pipeline?.clientes || 0}</strong> · Taxa conversão: <strong>${s.pipeline?.taxa_conversao || 0}%</strong> · Com telefone: <strong>${s.pipeline?.com_telefone || 0}</strong> · Follow-ups: <strong>${s.pipeline?.follow_ups_agendados || 0}</strong></p>
     </div>
     <div class="panel">
-      <h3 style="margin-top:0">Playbook de conversão (distribuidora B2B)</h3>
+      <h3 style="margin-top:0">Playbook de Conversão — AutonomIA Systems (B2B)</h3>
       <ol style="color:var(--muted);line-height:1.7">
-        <li><strong>Contatar</strong> — ligue ou WhatsApp no mesmo dia (botões no card do lead).</li>
-        <li><strong>Qualificar</strong> — confirme se compra bebidas/alimentos, volume e frequência.</li>
-        <li><strong>Visita / proposta</strong> — leve tabela e amostra; registre no histórico.</li>
-        <li><strong>Converter</strong> — botão navy "Tornar cliente" após 1º pedido ou acordo.</li>
-        <li><strong>Recorrência</strong> — anote próximo contato e mix de produtos.</li>
+        <li><strong>Captura Maps</strong> — execute uma missão no Motor Google Maps para minerar 100% do segmento na cidade-alvo.</li>
+        <li><strong>Raio-X & Matriz OURO</strong> — identifique brechas técnicas (sem site, sem WhatsApp, sem Pixel/GTM) e priorize o quadrante 💎 OURO.</li>
+        <li><strong>Power Dialer</strong> — dispare abordagens consultivas personalizadas 1-a-1 e registre o sinal do cliente no ato.</li>
+        <li><strong>Agenda & Cadência</strong> — execute os retornos no prazo ideal guiado pela temperatura e pelo Valor em Risco.</li>
+        <li><strong>Conversão</strong> — apresente o diagnóstico e clique em "✅ Tornar cliente" após o fechamento do projeto.</li>
       </ol>
     </div>`;
 }
@@ -507,6 +554,7 @@ function novo(v) {
     const b = Object.fromEntries(new FormData(e.currentTarget));
     try {
       await api('/api/leads', { method: 'POST', body: JSON.stringify(b) });
+      await window.refreshMeta?.();
       toast('Lead salvo');
       show('leads');
       $$('.nav').forEach((x) => x.classList.toggle('active', x.dataset.view === 'leads'));
@@ -657,8 +705,8 @@ function getActiveOperatorName() {
 }
 
 const DEFAULT_TEMPLATES = {
-  primeiro: `Olá {nome_fantasia} Tudo bem? Meu nome é {operador} da AutonomIA Systems. Nós desenvolvemos sistemas inteligentes sob medida para ajudar seu negocio crescer e transformar a rotina da sua empresa para melhor.vejo que muitas empresas hoje investem em sistemas, mas ainda sentem que eles não entregam todo o valor e controle que gostariam de ter no dia a dia...
-Se tiver 10 minutinhos pra conversar posso te apresentar todas as vantagens dos nossos sistemas`,
+  primeiro: `Olá, {nome_fantasia}! Tudo bem? Meu nome é {operador}, da AutonomIA Systems. Nós desenvolvemos sistemas inteligentes sob medida para ajudar seu negócio a crescer e transformar a rotina da sua empresa para melhor. Vejo que muitas empresas hoje investem em sistemas, mas ainda sentem que eles não entregam todo o valor e controle que gostariam de ter no dia a dia...
+Se tiver 10 minutinhos para conversar, posso te apresentar todas as vantagens dos nossos sistemas.`,
 
   sem_resposta: `Olá! Aqui é o(a) {operador}, da AutonomIA Systems. Tentei contato anteriormente sobre a operação da {nome_fantasia}. Sei como a rotina é corrida, mas caso sinta que os sistemas e rotinas atuais da sua equipe poderiam entregar mais agilidade com IA, fico à disposição para um bate-papo rápido e sem compromisso.`,
 
@@ -812,7 +860,7 @@ async function openLead(id) {
             <option>PROPOSTA</option><option>EMAIL</option><option>NOTA</option><option>FOLLOWUP</option>
           </select>
         </div>
-        <div class="field full"><label>Resumo</label><input id="ixResumo" placeholder="Ex.: Atendeu, pediu tabela de cerveja e gelo" /></div>
+        <div class="field full"><label>Resumo</label><input id="ixResumo" placeholder="Ex.: Atendeu, pediu demonstração do sistema / agente no WhatsApp" /></div>
       </div>
       <div class="actions"><button class="btn good" onclick="addIx('${x.id}')">Registrar</button></div>
       <ul style="color:var(--muted);line-height:1.6;max-height:180px;overflow:auto">
@@ -970,7 +1018,8 @@ async function saveLead(id) {
     });
     toast('Atualizado');
     $('#modal').classList.add('hidden');
-    show('leads');
+    const activeView = $('.nav.active')?.dataset?.view || 'leads';
+    show(activeView);
   } catch (e) {
     toast(e.message);
   }

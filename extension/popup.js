@@ -61,6 +61,12 @@ async function checkHealth() {
 
   chrome.runtime.sendMessage({ type: 'CHECK_HEALTH', serverUrl, accessKey }, (res) => {
     if (chrome.runtime.lastError || !res?.ok) {
+      if (res?.auth_error) {
+        badge.textContent = 'Chave inválida';
+        badge.className = 'badge offline';
+        showFeedback(res.error || 'Chave de acesso inválida ou ausente.', true);
+        return;
+      }
       badge.textContent = 'Offline';
       badge.className = 'badge offline';
       return;
@@ -157,7 +163,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     serverUrl = $('serverUrl').value.trim().replace(/\/+$/, '') || DEFAULT_SERVER_URL;
     const accessKey = $('accessKey')?.value?.trim() || '';
 
-    chrome.runtime.sendMessage({ type: 'SEND_LEADS', serverUrl, accessKey, leads: queue }, async (res) => {
+    const payloadLeads = queue.map((l) => (l.cidade ? l : { ...l, cidade: 'Governador Valadares' }));
+    chrome.runtime.sendMessage({ type: 'SEND_LEADS', serverUrl, accessKey, leads: payloadLeads }, async (res) => {
       $('btnEnviar').disabled = false;
       if (chrome.runtime.lastError || !res?.ok) {
         showFeedback(`Falha no envio: ${res?.error || chrome.runtime.lastError?.message || 'servidor offline'}`, true);

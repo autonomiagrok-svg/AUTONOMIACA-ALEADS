@@ -88,7 +88,8 @@ body {
   gap: 6px;
 }
 
-input[type="url"] {
+input[type="url"],
+input[type="password"] {
   flex: 1;
   min-width: 0;
   padding: 7px 9px;

@@ -353,3 +353,39 @@ test('evaluateValueMatrix ignora etiquetas conflitantes legadas e summarizeMatri
   assert.equal(ouro.lead_ids_prontos_com_fixo.includes('mx-invalido'), false);
   assert.equal(summary.quadrantes.ENTRADA.lead_ids_prontos_com_fixo.includes('mx-inativo'), false);
 });
+
+test('WalJsonAdapter não envenena writeQueue após falha transitória e contabiliza write_errors', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wal-resilient-'));
+  const file = path.join(dir, 'leads.json');
+  const origAppendFile = fs.promises.appendFile;
+  try {
+    const wal = new WalJsonAdapter(file, { compactThreshold: 10 });
+    wal.load();
+
+    // Simula erro transitório EBUSY na primeira gravação do WAL
+    let failOnce = true;
+    fs.promises.appendFile = async (...args) => {
+      if (failOnce) {
+        failOnce = false;
+        throw Object.assign(new Error('EBUSY: resource busy'), { code: 'EBUSY' });
+      }
+      return origAppendFile.apply(fs.promises, args);
+    };
+
+    await wal.appendUpsert({ id: 'lead-fail', nome_fantasia: 'Falha Transitória' });
+    const statsAfterErr = wal.getStats();
+    assert.equal(statsAfterErr.write_errors, 1);
+    assert.match(statsAfterErr.last_write_error?.message || '', /EBUSY/);
+
+    // Gravação subsequente deve funcionar normalmente sem fila envenenada
+    await wal.appendUpsert({ id: 'lead-ok', nome_fantasia: 'Recuperado' });
+    await wal.flush();
+
+    const recovered = new WalJsonAdapter(file, { compactThreshold: 10 }).load();
+    assert.equal(recovered.some((l) => l.id === 'lead-ok'), true);
+    assert.equal(wal.getStats().write_errors, 1);
+  } finally {
+    fs.promises.appendFile = origAppendFile;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

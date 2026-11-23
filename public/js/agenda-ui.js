@@ -417,7 +417,7 @@
               status: newStatus,
               tipo: newStatus === 'CLIENTE' ? 'CONVERSAO' : (newStatus === 'PROPOSTA' ? 'PROPOSTA' : (newStatus === 'VISITA' ? 'VISITA' : 'NOTA')),
               registrar_toque: false,
-              proximo_contato: newStatus === 'DESCARTADO' ? null : undefined,
+              proximo_contato: (newStatus === 'CLIENTE' || newStatus === 'DESCARTADO') ? null : undefined,
               resumo: `Status atualizado para ${newStatus} na Agenda do Dia`,
             }),
           });

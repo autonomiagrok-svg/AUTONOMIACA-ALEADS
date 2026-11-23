@@ -1,4 +1,5 @@
 import { normalizePhone, validateCNPJ } from './hygiene.js';
+import { validateExternalUrl } from './http/ssrf_guard.js';
 
 const MAX_HTML_BYTES = 512 * 1024; // 512 KB
 const cnpjCache = new Map();
@@ -147,32 +148,47 @@ function normalizeCandidateUrls(rawUrl) {
   return [`https://${stripped}`, `http://${stripped}`];
 }
 
+function emptyAuditResult(error) {
+  return {
+    online: false,
+    https: false,
+    ttfb_ms: null,
+    has_whatsapp: false,
+    has_meta_pixel: false,
+    has_gtm_or_ads: false,
+    emails_found: [],
+    instagram_found: null,
+    stack_detectada: [],
+    has_ecommerce: false,
+    has_viewport_mobile: false,
+    seo_basico_ok: false,
+    has_schema_local: false,
+    error,
+  };
+}
+
 /**
  * Raio-X HTTP leve em site comercial (HTTPS primeiro, fallback HTTP, teto de 512 KB, mede TTFB).
  */
-export async function auditWebsite(rawUrl, { fetchImpl = fetch } = {}) {
+export async function auditWebsite(rawUrl, { fetchImpl = fetch, validateUrlImpl = null } = {}) {
   const candidates = normalizeCandidateUrls(rawUrl);
   if (!candidates.length) {
-    return {
-      online: false,
-      https: false,
-      ttfb_ms: null,
-      has_whatsapp: false,
-      has_meta_pixel: false,
-      has_gtm_or_ads: false,
-      emails_found: [],
-      instagram_found: null,
-      stack_detectada: [],
-      has_ecommerce: false,
-      has_viewport_mobile: false,
-      seo_basico_ok: false,
-      has_schema_local: false,
-      error: 'URL ausente',
-    };
+    return emptyAuditResult('URL ausente');
   }
+
+  const validator = validateUrlImpl !== null
+    ? validateUrlImpl
+    : (fetchImpl === fetch ? validateExternalUrl : null);
 
   let lastError = null;
   for (const url of candidates) {
+    if (typeof validator === 'function') {
+      try {
+        await validator(url);
+      } catch (err) {
+        return emptyAuditResult(err?.message || 'URL bloqueada por segurança');
+      }
+    }
     try {
       const t0 = performance.now();
       const res = await fetchImpl(url, {
@@ -204,22 +220,7 @@ export async function auditWebsite(rawUrl, { fetchImpl = fetch } = {}) {
     }
   }
 
-  return {
-    online: false,
-    https: false,
-    ttfb_ms: null,
-    has_whatsapp: false,
-    has_meta_pixel: false,
-    has_gtm_or_ads: false,
-    emails_found: [],
-    instagram_found: null,
-    stack_detectada: [],
-    has_ecommerce: false,
-    has_viewport_mobile: false,
-    seo_basico_ok: false,
-    has_schema_local: false,
-    error: lastError || 'Site inacessível',
-  };
+  return emptyAuditResult(lastError || 'Site inacessível');
 }
 
 /**

@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -101,7 +104,83 @@ test('server.js exige x-access-key quando APP_ACCESS_KEY está definida e libera
     assert.equal(corsRes.status, 204);
     const allowHeaders = corsRes.headers.get('access-control-allow-headers') || '';
     assert.ok(allowHeaders.toLowerCase().includes('x-access-key'));
+
+    // BUG-04: /api/auth/verify exige chave quando ativa e confirma autenticidade
+    const verifyDenied = await fetch(`${srv.baseUrl}/api/auth/verify`);
+    assert.equal(verifyDenied.status, 401);
+
+    const verifyWrong = await fetch(`${srv.baseUrl}/api/auth/verify`, {
+      headers: { 'x-access-key': 'errada' },
+    });
+    assert.equal(verifyWrong.status, 401);
+
+    const verifyOk = await fetch(`${srv.baseUrl}/api/auth/verify`, {
+      headers: { 'x-access-key': secret },
+    });
+    assert.equal(verifyOk.status, 200);
+    const verifyData = await verifyOk.json();
+    assert.equal(verifyData.ok, true);
+    assert.equal(verifyData.auth_valid, true);
+    assert.equal(verifyData.protected, true);
   } finally {
     await srv.stop();
+  }
+});
+
+test('POST /api/leads/:id/followup valida datas UTC e PUT /api/leads/:id faz merge antes de checar duplicata', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'srv-onda0-'));
+  const srv = await startTestServer({
+    APP_ACCESS_KEY: '',
+    LEADS_FILE: path.join(dir, 'leads.json'),
+    LENSES_FILE: path.join(dir, 'lenses.json'),
+  });
+
+  try {
+    // Cria Lead A em Governador Valadares e Lead B homônimo em Belo Horizonte
+    const resA = await fetch(`${srv.baseUrl}/api/leads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nome_fantasia: 'Clínica Central', cidade: 'Governador Valadares' }),
+    });
+    assert.equal(resA.status, 201);
+
+    const resB = await fetch(`${srv.baseUrl}/api/leads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nome_fantasia: 'Clínica Central', cidade: 'Belo Horizonte', uf: 'MG' }),
+    });
+    assert.equal(resB.status, 201);
+    const { item: leadB } = await resB.json();
+
+    // BUG-11: Update parcial de Lead B enviando nome_fantasia sem cidade não pode gerar falso 409 com Lead A de GV
+    const putB = await fetch(`${srv.baseUrl}/api/leads/${leadB.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nome_fantasia: 'Clínica Central', status: 'QUALIFICADO' }),
+    });
+    assert.equal(putB.status, 200);
+    const putBData = await putB.json();
+    assert.equal(putBData.item.status, 'QUALIFICADO');
+    assert.equal(putBData.item.cidade, 'Belo Horizonte');
+
+    // BUG-06: Data ISO válida deve passar e data impossível (2026-02-30) deve retornar 400
+    const badDateRes = await fetch(`${srv.baseUrl}/api/leads/${leadB.id}/followup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ proximo_contato: '2026-02-30' }),
+    });
+    assert.equal(badDateRes.status, 400);
+
+    const goodDateRes = await fetch(`${srv.baseUrl}/api/leads/${leadB.id}/followup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ proximo_contato: '2026-11-23', nota: 'Teste UTC' }),
+    });
+    assert.equal(goodDateRes.status, 200);
+    const goodData = await goodDateRes.json();
+    assert.equal(goodData.item.proximo_contato, '2026-11-23');
+  } finally {
+    await srv.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

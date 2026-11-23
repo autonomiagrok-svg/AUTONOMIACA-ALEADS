@@ -60,6 +60,7 @@
         const result = await ingestMapsPayload(raw);
         document.getElementById('modal')?.classList.add('hidden');
         window.toast?.(`Importação concluída: ${result.imported} novos, ${result.updated || 0} enriquecidos, ${result.diagnosed_count || 0} diagnosticados.`);
+        window.refreshMeta?.();
         window.refreshAgendaBadge?.();
       } catch (err) {
         window.toast?.('Erro: ' + err.message);
@@ -74,6 +75,7 @@
         if (clip && (clip.trim().startsWith('{') || clip.trim().startsWith('['))) {
           const result = await ingestMapsPayload(clip);
           window.toast?.(`JSON importado: ${result.imported} novos, ${result.updated || 0} enriquecidos, ${result.diagnosed_count || 0} diagnosticados.`);
+          window.refreshMeta?.();
           window.refreshAgendaBadge?.();
           return;
         }
@@ -243,6 +245,7 @@
         refreshMonitorDom();
         if (!ACTIVE_MISSION || ACTIVE_MISSION.status !== 'RUNNING') {
           stopPolling();
+          window.refreshMeta?.();
           window.refreshAgendaBadge?.();
         }
       } catch {

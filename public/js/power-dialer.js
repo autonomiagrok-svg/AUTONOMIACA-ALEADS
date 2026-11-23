@@ -105,9 +105,14 @@
         const phoneNorm = window.Hygiene?.normalizePhone(rawPhone);
         return { lead, evalRes, phoneNorm };
       })
-      .filter(({ evalRes, phoneNorm }) => {
-        if (!evalRes.acionavel || !phoneNorm?.valido) return false;
-        if (phoneNorm.whatsapp_provavel) return true;
+      .filter(({ lead, evalRes, phoneNorm }) => {
+        if (!phoneNorm?.valido) return false;
+        if (lead.whatsapp_status === 'INVALIDO') return false;
+        const sit = String(lead?.diagnostico_fatos?.cnpj_info?.situacao_cadastral || '').trim().toUpperCase();
+        const cnpjInativo = (Array.isArray(evalRes.etiquetas_dor) && evalRes.etiquetas_dor.includes('CNPJ Inativo'))
+          || (sit && sit !== 'ATIVA' && sit !== '2');
+        if (cnpjInativo) return false;
+        if (phoneNorm.whatsapp_provavel) return evalRes.acionavel;
         return sessionState.includeLandline && phoneNorm.tipo === 'FIXO';
       });
 
@@ -150,6 +155,15 @@
 
   function renderQuickFilters() {
     if (sessionState.mode === 'followup') return '';
+    if (sessionState.externalLeads.length > 0) {
+      return `
+        <div class="filters" style="margin-bottom:12px">
+          <label class="dialer-fixo-toggle">
+            <input type="checkbox" id="dialerIncludeFixo" ${sessionState.includeLandline ? 'checked' : ''} />
+            ☎️ Incluir Fixos
+          </label>
+        </div>`;
+    }
     const lotes = window.META?.lotes || [];
     const segs = window.META?.segmentos || [];
     const { origem, lote, segmento } = sessionState.filters;
@@ -178,6 +192,21 @@
       </div>`;
   }
 
+  function safeExternalUrl(raw) {
+    if (!raw) return null;
+    try {
+      const value = String(raw).trim();
+      if (!value) return null;
+      if (!/^[a-z][a-z\d+.-]*:/i.test(value) && !value.includes('.') && !value.startsWith('//')) return null;
+      const candidate = /^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value.replace(/^\/\//, '')}`;
+      const u = new URL(candidate);
+      if (!['http:', 'https:'].includes(u.protocol)) return null;
+      return u.href;
+    } catch {
+      return null;
+    }
+  }
+
   function getInstagramLink(lead) {
     const redes = Array.isArray(lead?.redes_sociais) ? lead.redes_sociais : [];
     const ig = redes.find((r) => r.toLowerCase().includes('instagram.com'));
@@ -202,6 +231,10 @@
         sessionState.mode = 'prospeccao';
         sessionState.filters = { origem: '', lote: '', segmento: '' };
         sessionState.skippedIds = [];
+        sessionState.externalLeads = [];
+        sessionState.externalLabel = '';
+        sessionState.socialProof = null;
+        sessionState.offerContext = null;
         window.renderPowerDialerView(container);
       });
       return;
@@ -233,7 +266,9 @@
     const rawPhone = lead.whatsapp || lead.telefone;
     const isLandline = phoneNorm?.tipo === 'FIXO';
     const telDigits = String(rawPhone || '').replace(/\D/g, '');
-    const igUrl = getInstagramLink(lead);
+    const websiteHref = safeExternalUrl(lead.website);
+    const igUrl = safeExternalUrl(getInstagramLink(lead));
+    const fonteHref = safeExternalUrl(lead.fonte_url);
     const socios = Array.isArray(lead.socios) && lead.socios.length
       ? lead.socios
       : (lead.diagnostico_fatos?.cnpj_info?.socios || []);
@@ -275,9 +310,9 @@
         <div class="dialer-facts">
           <div>${window.renderPainBadges?.(evalRes.etiquetas_dor) || '<span class="muted">Sem alertas mapeados</span>'}</div>
           <div class="dialer-links">
-            ${lead.website ? `<a class="btn" href="${window.esc(lead.website)}" target="_blank" rel="noopener noreferrer">🌐 Site</a>` : ''}
+            ${websiteHref ? `<a class="btn" href="${window.esc(websiteHref)}" target="_blank" rel="noopener noreferrer">🌐 Site</a>` : ''}
             ${igUrl ? `<a class="btn" href="${window.esc(igUrl)}" target="_blank" rel="noopener noreferrer">📸 Instagram</a>` : ''}
-            ${lead.fonte_url ? `<a class="btn" href="${window.esc(lead.fonte_url)}" target="_blank" rel="noopener noreferrer">🗺️ Maps / Fonte</a>` : ''}
+            ${fonteHref ? `<a class="btn" href="${window.esc(fonteHref)}" target="_blank" rel="noopener noreferrer">🗺️ Maps / Fonte</a>` : ''}
             <button type="button" class="btn" id="dialerDiagnoseBtn">🔬 Raio-X</button>
           </div>
           ${socios.length ? `<div class="muted" style="font-size:12px">👥 Sócios (BrasilAPI): <strong>${window.esc(socios.join(', '))}</strong></div>` : ''}
@@ -408,7 +443,7 @@
       try {
         const res = await window.api(`/api/leads/${lead.id}/diagnose`, { method: 'POST', body: JSON.stringify({}) });
         if (res.item) {
-          const modeId = window.getActiveScoringMode?.() || 'equilibrado';
+          const modeId = window.getActiveLensOrMode?.() || window.getActiveScoringMode?.() || 'equilibrado';
           entry.lead = res.item;
           entry.evalRes = window.ScoringModes.evaluateLead(res.item, modeId);
         }
@@ -491,7 +526,14 @@
             method: 'POST',
             body: JSON.stringify({ sinal, registrar_toque: false }),
           });
-          if (res.item) entry.lead = res.item;
+          if (res.item) {
+            entry.lead = res.item;
+            if (sessionState.mode === 'followup' && window.CadenceEngine) {
+              const lensOrMode = window.getActiveLensOrMode?.() || window.getActiveScoringMode?.() || 'equilibrado';
+              entry.cadence = window.CadenceEngine.analyzeLeadCadence(res.item, { modeId: lensOrMode });
+              entry.nextStep = window.CadenceEngine.recommendNextStep(res.item, entry.cadence);
+            }
+          }
           window.toast?.(`Sinal registrado: ${sinal}`);
           renderDialerCard(container);
         } catch (err) {
@@ -560,7 +602,7 @@
     document.addEventListener('keydown', (e) => {
       if (!isDialerActive()) return;
       const tag = (document.activeElement?.tagName || '').toUpperCase();
-      if (['INPUT', 'TEXTAREA', 'SELECT', 'OPTION'].includes(tag)) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT', 'OPTION', 'BUTTON', 'A'].includes(tag)) return;
 
       if (e.key === 'Enter' && !sessionState.awaitingCadence) {
         e.preventDefault();

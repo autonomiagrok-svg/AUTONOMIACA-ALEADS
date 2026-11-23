@@ -13,6 +13,8 @@ export class WalJsonAdapter {
     this.compactThreshold = Math.max(1, Number(compactThreshold) || 50);
     this.walOps = 0;
     this.lastCompactAt = null;
+    this.writeErrors = 0;
+    this.lastWriteError = null;
     this.writeQueue = Promise.resolve();
   }
 
@@ -101,47 +103,50 @@ export class WalJsonAdapter {
     return finalLeads;
   }
 
+  _enqueueWrite(opName, taskFn) {
+    this.writeQueue = this.writeQueue
+      .catch(() => {})
+      .then(taskFn)
+      .catch((err) => {
+        this.writeErrors += 1;
+        this.lastWriteError = {
+          message: err?.message || String(err),
+          at: new Date().toISOString(),
+        };
+        console.error(`Erro no WAL ${opName}:`, err);
+      });
+    return this.writeQueue;
+  }
+
   appendUpsert(lead, getSnapshotFn = null) {
     const line = JSON.stringify({ op: 'UPSERT', ts: Date.now(), lead }) + '\n';
-    this.writeQueue = this.writeQueue.then(async () => {
+    return this._enqueueWrite('appendUpsert', async () => {
       await fs.promises.mkdir(path.dirname(this.walFile), { recursive: true });
       await fs.promises.appendFile(this.walFile, line, { encoding: 'utf8', mode: 0o600 });
       this.walOps++;
       if (this.walOps >= this.compactThreshold && typeof getSnapshotFn === 'function') {
         await this._writeSnapshotAsync(getSnapshotFn());
       }
-    }).catch((err) => {
-      console.error('Erro no WAL appendUpsert:', err);
-      throw err;
     });
-    return this.writeQueue;
   }
 
   appendDelete(id, getSnapshotFn = null) {
     const line = JSON.stringify({ op: 'DELETE', ts: Date.now(), id }) + '\n';
-    this.writeQueue = this.writeQueue.then(async () => {
+    return this._enqueueWrite('appendDelete', async () => {
       await fs.promises.mkdir(path.dirname(this.walFile), { recursive: true });
       await fs.promises.appendFile(this.walFile, line, { encoding: 'utf8', mode: 0o600 });
       this.walOps++;
       if (this.walOps >= this.compactThreshold && typeof getSnapshotFn === 'function') {
         await this._writeSnapshotAsync(getSnapshotFn());
       }
-    }).catch((err) => {
-      console.error('Erro no WAL appendDelete:', err);
-      throw err;
     });
-    return this.writeQueue;
   }
 
   replaceAll(allLeads) {
     const snapshot = [...allLeads];
-    this.writeQueue = this.writeQueue.then(async () => {
+    return this._enqueueWrite('replaceAll', async () => {
       await this._writeSnapshotAsync(snapshot);
-    }).catch((err) => {
-      console.error('Erro no WAL replaceAll:', err);
-      throw err;
     });
-    return this.writeQueue;
   }
 
   compact(allLeads) {
@@ -161,6 +166,8 @@ export class WalJsonAdapter {
       snapshot_bytes,
       wal_bytes,
       last_compact_at: this.lastCompactAt,
+      write_errors: this.writeErrors,
+      last_write_error: this.lastWriteError,
       snapshot_file: path.basename(this.snapshotFile),
       wal_file: path.basename(this.walFile),
     };

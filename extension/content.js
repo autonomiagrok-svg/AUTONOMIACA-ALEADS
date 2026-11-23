@@ -139,7 +139,7 @@
     return {
       endereco: raw || null,
       bairro: bairro || null,
-      cidade: cidade || 'Governador Valadares',
+      cidade: cidade || null,
       uf,
     };
   }
@@ -449,12 +449,14 @@
         <strong style="color:#00d2ff;font-size:13px">⚡ AutonomIA Maps</strong>
         <button id="autonomiaHudStop" type="button" style="background:#991b1b;color:#fff;border:0;border-radius:8px;padding:4px 10px;font-weight:700;cursor:pointer;font-size:11px">🛑 Parar</button>
       </div>
-      <div style="color:#94a3b8;font-size:11px;margin-bottom:6px">${mission.query}</div>
+      <div id="autonomiaHudQuery" style="color:#94a3b8;font-size:11px;margin-bottom:6px"></div>
       <div id="autonomiaHudPhase" style="font-weight:700;color:#fff">⏳ Preparando lista do Google Maps...</div>
       <div id="autonomiaHudStats" style="color:#38bdf8;margin-top:4px;font-size:11px"></div>
     `;
 
     document.body.appendChild(hud);
+    const queryEl = hud.querySelector('#autonomiaHudQuery');
+    if (queryEl) queryEl.textContent = mission.query || '';
     hud.querySelector('#autonomiaHudStop')?.addEventListener('click', onStopClick);
 
     return {
@@ -631,7 +633,7 @@
       }
 
       if (finalLead) {
-        if (!finalLead.cidade || finalLead.cidade === 'Governador Valadares') {
+        if (!finalLead.cidade) {
           finalLead.cidade = mission.cidade;
           finalLead.uf = mission.uf;
         }
@@ -707,6 +709,12 @@
       } catch {
         // Ignora se storage indisponível
       }
+    }
+
+    try {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    } catch {
+      // Ignora se replaceState falhar
     }
 
     setTimeout(() => runMissionAutonomous(m[1], { serverUrl: apiUrl, accessKey }), 1200);

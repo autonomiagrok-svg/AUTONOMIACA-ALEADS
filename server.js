@@ -4,7 +4,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import {
   listLeads, getLead, stats, createLead, updateLead, deleteLead, addInteracao, toCsv, importRows,
-  convertLead, contactLead, setFollowUp, registerFollowUpOutcome, pipelineStats, followUpQueue, metaLists, previewImportRows, findLeadDuplicates,
+  convertLead, contactLead, registerFollowUpOutcome, pipelineStats, followUpQueue, metaLists, previewImportRows, findLeadDuplicates,
   compactNow, getStorageHealth,
   LEAD_STATUSES, SEGMENTS, POTENTIALS, INTERACTION_TYPES, WHATSAPP_STATUSES, SOURCE_TYPES, CLIENT_SIGNALS,
 } from './src/store.js';
@@ -139,6 +139,10 @@ async function route(req, res) {
     if (providedKey !== APP_ACCESS_KEY) {
       return send(res, 401, { error: 'Chave de acesso inválida ou ausente', auth_required: true });
     }
+  }
+
+  if (method === 'GET' && p === '/api/auth/verify') {
+    return send(res, 200, { ok: true, auth_valid: true, protected: Boolean(APP_ACCESS_KEY) });
   }
 
   if (method === 'GET' && p === '/api/health') {
@@ -355,7 +359,9 @@ async function route(req, res) {
     if (b.whatsapp_status !== undefined && b.whatsapp_status !== '' && !WHATSAPP_STATUSES.includes(b.whatsapp_status)) return send(res, 400, { error: 'Estado de WhatsApp inválido' });
     if (b.fonte_tipo !== undefined && !SOURCE_TYPES.includes(b.fonte_tipo)) return send(res, 400, { error: 'Tipo de fonte inválido' });
     if (b.nome_fantasia !== undefined && (typeof b.nome_fantasia !== 'string' || !b.nome_fantasia.trim())) return send(res, 400, { error: 'Nome fantasia não pode ficar vazio' });
-    const duplicates = findLeadDuplicates(b, leadDetail[1]);
+    const existing = getLead(lid);
+    if (!existing) return send(res, 404, { error: 'Lead não encontrado' });
+    const duplicates = findLeadDuplicates({ ...existing, ...b }, lid);
     if (duplicates.length) return send(res, 409, { error: 'Possível duplicata encontrada', duplicates });
     const item = updateLead(lid, b);
     if (!item) return send(res, 404, { error: 'Lead não encontrado' });
@@ -435,7 +441,7 @@ async function route(req, res) {
       const val = b[dateField];
       if (!val) continue;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) return send(res, 400, { error: `${dateField} deve estar no formato AAAA-MM-DD` });
-      const d = new Date(`${val}T00:00:00`);
+      const d = new Date(`${val}T12:00:00Z`);
       if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== val) return send(res, 400, { error: `${dateField} inválida` });
     }
     if (b.sinal !== undefined && b.sinal !== null && b.sinal !== '' && !CLIENT_SIGNALS.includes(b.sinal)) {

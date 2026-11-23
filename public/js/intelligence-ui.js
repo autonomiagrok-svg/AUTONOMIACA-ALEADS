@@ -146,8 +146,8 @@
               <label style="margin-bottom:8px">Pesos de Pontuação (-50 a +50)</label>
               <div class="weights-grid">
                 ${WEIGHT_FIELDS.map((wf) => {
-                  const val = draft.pesos?.[wf.key] ?? 0;
-                  return `
+      const val = draft.pesos?.[wf.key] ?? 0;
+      return `
                     <div class="weight-row">
                       <div style="display:flex;justify-content:space-between;font-size:12px">
                         <span>${wf.label}</span>
@@ -157,7 +157,7 @@
                         class="lens-weight-input" data-key="${wf.key}"
                         oninput="document.getElementById('wval_${wf.key}').textContent=(Number(this.value)>0?'+':'')+this.value" />
                     </div>`;
-                }).join('')}
+    }).join('')}
               </div>
             </div>
 
@@ -375,16 +375,16 @@
         </div>
         <div class="matrix-grid-2x2">
           ${order.map((key) => {
-            const q = qs[key];
-            if (!q) return '';
-            const isSel = key === intelState.selectedQuadrant;
-            const readyIds = intelState.includeLandline
-              ? (q.lead_ids_prontos_com_fixo || q.lead_ids || [])
-              : (q.lead_ids_prontos_celular || []);
-            const readyCount = readyIds.length;
-            const celCount = q.acionaveis_celular ?? readyCount;
-            const fixoCount = q.acionaveis_fixo ?? 0;
-            return `
+      const q = qs[key];
+      if (!q) return '';
+      const isSel = key === intelState.selectedQuadrant;
+      const readyIds = intelState.includeLandline
+        ? (q.lead_ids_prontos_com_fixo || q.lead_ids || [])
+        : (q.lead_ids_prontos_celular || []);
+      const readyCount = readyIds.length;
+      const celCount = q.acionaveis_celular ?? readyCount;
+      const fixoCount = q.acionaveis_fixo ?? 0;
+      return `
               <div class="matrix-quad quad-${key} ${isSel ? 'selected' : ''}" data-quad="${key}">
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
                   <strong style="font-size:15px">${window.esc(q.label)}</strong>
@@ -398,7 +398,7 @@
                   </button>
                 </div>
               </div>`;
-          }).join('')}
+    }).join('')}
         </div>
       </div>
 
@@ -459,7 +459,7 @@
         <div class="actions" style="margin:0">
           <button type="button" class="btn" id="btnAuditCleanup">🧹 Auditar & Limpar Base</button>
           <button type="button" class="btn" id="btnCompactWal">🗜️ Compactar WAL</button>
-          <a class="btn primary" href="/api/system/backup" style="text-decoration:none">💾 Baixar Backup JSON</a>
+          <button type="button" class="btn primary" id="btnDownloadBackup">💾 Baixar Backup JSON</button>
         </div>
       </div>
       ${renderCleanupPanelHtml()}`;
@@ -551,6 +551,7 @@
     document.querySelectorAll('.btn-activate-lens').forEach((btn) => {
       btn.addEventListener('click', () => {
         window.setActiveScoringMode(btn.dataset.id);
+        intelState.calibrationData = null;
         window.toast?.(`Lente ativa: ${window.getActiveModeLabel()}`);
         renderIntelligence(container);
       });
@@ -593,6 +594,7 @@
         try {
           await window.api(`/api/lenses/${btn.dataset.id}`, { method: 'DELETE' });
           await window.loadCustomLenses();
+          intelState.calibrationData = null;
           if (window.getActiveScoringMode() === btn.dataset.id) {
             window.setActiveScoringMode('equilibrado');
           }
@@ -631,6 +633,7 @@
         await window.loadCustomLenses();
         window.setActiveScoringMode(res.item.id);
         intelState.editingLens = null;
+        intelState.calibrationData = null;
         window.toast?.(`Lente "${res.item.nome}" salva e ativada!`);
         renderIntelligence(container);
       } catch (err) {
@@ -649,6 +652,7 @@
           : await window.api('/api/lenses', { method: 'POST', body: JSON.stringify(prop) });
         await window.loadCustomLenses();
         window.setActiveScoringMode(res.item.id);
+        intelState.calibrationData = null;
         window.toast?.('Lente Auto-Calibrada salva e ativada!');
         renderIntelligence(container);
       } catch (err) {
@@ -778,6 +782,7 @@
         });
         intelState.lastCleanupResult = res;
         intelState.cleanupPreview = await window.api('/api/system/cleanup/preview');
+        await window.refreshMeta?.();
         window.toast?.(`Faxina concluída! Backup salvo em ${res.backup_file}`);
         window.refreshAgendaBadge?.();
         await window.renderIntelligenceCockpit(container);
@@ -796,6 +801,7 @@
         });
         intelState.lastCleanupResult = res;
         intelState.cleanupPreview = await window.api('/api/system/cleanup/preview');
+        await window.refreshMeta?.();
         window.toast?.(`Base zerada com backup em ${res.backup_file}`);
         window.refreshAgendaBadge?.();
         await window.renderIntelligenceCockpit(container);
@@ -813,6 +819,11 @@
       } catch (err) {
         window.toast?.('Erro ao compactar WAL: ' + err.message);
       }
+    });
+
+    document.getElementById('btnDownloadBackup')?.addEventListener('click', () => {
+      window.downloadAuthenticatedFile?.('/api/system/backup', 'autonomia-leads-backup.json')
+        .catch((err) => window.toast?.('Erro ao baixar backup: ' + err.message));
     });
   }
 
