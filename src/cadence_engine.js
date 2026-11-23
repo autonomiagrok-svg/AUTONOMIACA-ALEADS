@@ -1,5 +1,5 @@
 import { evaluateLead } from './scoring_modes.js';
-import { normalizePhone } from './hygiene.js';
+import { hashString, toIsoDateLocal, addDaysIsoDate, extractContactProfile } from './domain_signals.js';
 
 export const OUTBOUND_TYPES = new Set(['WHATSAPP', 'LIGACAO', 'EMAIL', 'VISITA', 'FOLLOWUP', 'PROPOSTA']);
 export const CLIENT_SIGNALS = ['SEM_RESPOSTA', 'PEDIU_DEPOIS', 'OBJECAO_PRECO', 'TEM_FORNECEDOR', 'PEDIU_PROPOSTA', 'QUENTE'];
@@ -12,13 +12,6 @@ export const STAGE_SLA_DAYS = {
 };
 
 const TOTAL_VARIATIONS = 3;
-
-function toLocalDateStr(d) {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 function parseTimestamp(val) {
   if (!val) return null;
@@ -33,20 +26,6 @@ function diffDaysInt(fromMs, toMs) {
   return Math.max(0, Math.floor((toMs - fromMs) / 86400000));
 }
 
-function addDaysStr(baseDate, days) {
-  const d = new Date(baseDate.getTime());
-  d.setDate(d.getDate() + days);
-  return toLocalDateStr(d);
-}
-
-function hashString(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (h * 31 + str.charCodeAt(i)) >>> 0;
-  }
-  return h;
-}
-
 function firstPartnerName(lead) {
   const socios = Array.isArray(lead?.socios) && lead.socios.length
     ? lead.socios
@@ -57,12 +36,10 @@ function firstPartnerName(lead) {
 }
 
 function preferredChannel(lead) {
-  const waNorm = normalizePhone(lead?.whatsapp);
-  const telNorm = normalizePhone(lead?.telefone);
-  if (lead?.whatsapp_status !== 'INVALIDO' && waNorm.valido && waNorm.whatsapp_provavel) return 'WHATSAPP';
-  if (telNorm.valido && telNorm.whatsapp_provavel && lead?.whatsapp_status !== 'INVALIDO') return 'WHATSAPP';
-  if (telNorm.valido || waNorm.valido) return 'LIGACAO';
-  if (lead?.email) return 'EMAIL';
+  const contact = extractContactProfile(lead);
+  if (contact.hasMobile) return 'WHATSAPP';
+  if (contact.hasAnyPhone) return 'LIGACAO';
+  if (contact.hasEmail) return 'EMAIL';
   return 'WHATSAPP';
 }
 
@@ -72,8 +49,8 @@ function preferredChannel(lead) {
 export function analyzeLeadCadence(lead, { now = new Date(), modeId = 'equilibrado' } = {}) {
   const nowDate = now instanceof Date ? now : new Date(now);
   const nowMs = nowDate.getTime();
-  const todayStr = toLocalDateStr(nowDate);
-  const plus3Str = addDaysStr(nowDate, 3);
+  const todayStr = toIsoDateLocal(nowDate);
+  const plus3Str = addDaysIsoDate(nowDate, 3);
 
   const evalRes = evaluateLead(lead, modeId);
   const interacoes = Array.isArray(lead?.interacoes) ? lead.interacoes : [];
@@ -196,10 +173,9 @@ export function recommendNextStep(lead, cadenceInfo) {
   const info = cadenceInfo || analyzeLeadCadence(lead);
   const status = lead?.status || 'NOVO';
   const sinal = info.ultimo_sinal;
-  const telNorm = normalizePhone(lead?.telefone);
-  const waNorm = normalizePhone(lead?.whatsapp);
-  const hasPhone = telNorm.valido || waNorm.valido;
-  const hasEmail = Boolean(lead?.email);
+  const contact = extractContactProfile(lead);
+  const hasPhone = contact.hasAnyPhone;
+  const hasEmail = contact.hasEmail;
   const baseChannel = preferredChannel(lead);
 
   if (sinal === 'OBJECAO_PRECO') {

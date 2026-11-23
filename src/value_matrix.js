@@ -1,5 +1,4 @@
-import { normalizePhone } from './hygiene.js';
-import { sanitizePainTags } from './scoring_modes.js';
+import { sanitizePainTags, extractContactProfile } from './domain_signals.js';
 
 export { sanitizePainTags };
 
@@ -35,12 +34,7 @@ export const MATRIX_QUADRANTS = {
 
 function getEffectivePainTags(lead) {
   const tags = new Set(sanitizePainTags(lead));
-
-  const waNorm = normalizePhone(lead?.whatsapp);
-  const telNorm = normalizePhone(lead?.telefone);
-  const hasMobile = (waNorm.valido && waNorm.whatsapp_provavel) || (telNorm.valido && telNorm.whatsapp_provavel);
-  const hasFixo = (waNorm.valido && waNorm.tipo === 'FIXO') || (telNorm.valido && telNorm.tipo === 'FIXO');
-  if (hasFixo && !hasMobile) tags.add('Só Telefone Fixo');
+  if (extractContactProfile(lead).isLandlineOnly) tags.add('Só Telefone Fixo');
 
   const cnpjSit = String(lead?.diagnostico_fatos?.cnpj_info?.situacao_cadastral || '').trim().toUpperCase();
   if (cnpjSit && cnpjSit !== 'ATIVA' && cnpjSit !== '2') tags.add('CNPJ Inativo');
@@ -83,9 +77,7 @@ export function evaluateValueMatrix(lead) {
       sinais_caixa.push(`Nota ${av}★`);
     }
 
-    const waNorm = normalizePhone(lead?.whatsapp);
-    const telNorm = normalizePhone(lead?.telefone);
-    const hasDirectPhone = waNorm.valido || telNorm.valido;
+    const hasDirectPhone = extractContactProfile(lead).hasAnyPhone;
     const hasLocation = Boolean(String(lead?.endereco || lead?.bairro || '').trim());
     if (hasDirectPhone && hasLocation) {
       caixa += 10;
@@ -174,16 +166,9 @@ function classifyDialerReadiness(lead, tags) {
   if (tags.includes('CNPJ Inativo')) {
     return { readyMobile: false, readyLandline: false, acionavel: false };
   }
-  const waNorm = normalizePhone(lead?.whatsapp);
-  const telNorm = normalizePhone(lead?.telefone);
-  const readyMobile = Boolean(
-    (waNorm.valido && waNorm.whatsapp_provavel)
-    || (telNorm.valido && telNorm.whatsapp_provavel)
-  );
-  const readyLandline = !readyMobile && Boolean(
-    (waNorm.valido && waNorm.tipo === 'FIXO')
-    || (telNorm.valido && telNorm.tipo === 'FIXO')
-  );
+  const contact = extractContactProfile(lead);
+  const readyMobile = contact.hasMobile;
+  const readyLandline = !readyMobile && contact.hasLandline;
   return {
     readyMobile,
     readyLandline,

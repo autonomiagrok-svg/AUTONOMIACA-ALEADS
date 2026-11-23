@@ -1,8 +1,16 @@
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { normalizePhone, normalizeDomain } from './hygiene.js';
-import { sanitizePainTags } from './scoring_modes.js';
+import {
+  sanitizePainTags,
+  inferOriginKey,
+  toIsoDateLocal,
+  extractContactProfile,
+} from './domain_signals.js';
+import { evaluateLead } from './scoring_modes.js';
 import { WalJsonAdapter } from './storage/wal_adapter.js';
+
+export { inferOriginKey };
 import {
   LeadIndex,
   normalizedText,
@@ -42,16 +50,6 @@ function formatBatchTimestamp(d = new Date()) {
   return `${dd}/${mm} ${hh}:${min}`;
 }
 
-export function inferOriginKey(row) {
-  const fonte = String(row?.fonte || '');
-  const url = String(row?.fonte_url || '');
-  const lote = String(row?.lote_origem || '');
-  if (row?.fonte_tipo === 'MAPS' || /google\s*maps/i.test(fonte) || url.includes('google.com/maps')) return 'MAPS';
-  if (/openstreetmap|overpass/i.test(fonte) || url.includes('openstreetmap.org')) return 'OSM';
-  if (/csv|importa[cç][aã]o/i.test(fonte) || /^CSV\s*•/i.test(lote)) return 'CSV';
-  return 'MANUAL';
-}
-
 function buildLoteOrigem(b, fallbackPrefix = null) {
   if (b?.lote_origem && String(b.lote_origem).trim()) return text(b.lote_origem, 80);
   const origin = fallbackPrefix || inferOriginKey(b);
@@ -72,11 +70,7 @@ function nullableNumber(value, { integer = false, min = null, max = null } = {})
 
 function inferPhoneType(b) {
   if (['CELULAR', 'FIXO', 'DESCONHECIDO'].includes(b?.telefone_tipo)) return b.telefone_tipo;
-  const waNorm = normalizePhone(b?.whatsapp);
-  if (waNorm.valido) return waNorm.tipo;
-  const telNorm = normalizePhone(b?.telefone || b?.phone);
-  if (telNorm.valido) return telNorm.tipo;
-  return 'DESCONHECIDO';
+  return extractContactProfile(b).primaryType;
 }
 
 export function setStoreFile(filePath, opts = {}) {
@@ -227,7 +221,7 @@ export function listLeads({ q, status, segmento, cidade, whatsapp, verificacao, 
   if (dor) rows = rows.filter((x) => Array.isArray(x.etiquetas_dor) && x.etiquetas_dor.includes(dor));
   if (lote) rows = rows.filter((x) => x.lote_origem === lote);
   if (followup === '1') rows = rows.filter((x) => x.proximo_contato);
-  if (followup === 'atrasado') rows = rows.filter((x) => x.proximo_contato && x.proximo_contato < todayLocal());
+  if (followup === 'atrasado') rows = rows.filter((x) => x.proximo_contato && x.proximo_contato < toIsoDateLocal());
   if (q) {
     const n = normalized(q);
     rows = rows.filter((x) =>
@@ -246,13 +240,8 @@ export function listLeads({ q, status, segmento, cidade, whatsapp, verificacao, 
   return rows.sort(comparators[sort] || comparators.score);
 }
 
-function todayLocal() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 export function followUpQueue(period = 'all') {
-  const today = todayLocal();
+  const today = toIsoDateLocal();
   const end = new Date();
   end.setDate(end.getDate() + 7);
   const week = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
@@ -302,15 +291,7 @@ export function stats() {
 }
 
 function scoreLead(row) {
-  let s = 40;
-  if (row.potencial === 'ALTO') s += 25;
-  else if (row.potencial === 'MEDIO') s += 10;
-  if (row.telefone || row.whatsapp) s += 10;
-  if (row.cnpj) s += 10;
-  if (row.endereco) s += 5;
-  if (['BAR', 'RESTAURANTE', 'MERCADO', 'ADEGA', 'CLINICA', 'ACADEMIA'].includes(row.segmento)) s += 10;
-  if (row.bairro === 'Centro') s += 5;
-  return Math.min(100, s);
+  return evaluateLead(row, 'equilibrado').score;
 }
 
 export function createLead(b) {
@@ -415,7 +396,7 @@ export function updateLead(lid, b) {
     const sameNumber = newPhones.some((p) => oldPhones.has(p));
     changes.whatsapp_status = sameNumber ? (before.whatsapp_status || 'NAO_VERIFICADO') : 'NAO_VERIFICADO';
   }
-  if (changes.whatsapp_status === 'VALIDADO' && !changes.verificado_em && !before.verificado_em) changes.verificado_em = todayLocal();
+  if (changes.whatsapp_status === 'VALIDADO' && !changes.verificado_em && !before.verificado_em) changes.verificado_em = toIsoDateLocal();
   if (('fonte' in changes || 'fonte_url' in changes) && !('fonte_tipo' in changes)) changes.fonte_tipo = sourceKind({ ...before, ...changes });
   if (('telefone' in changes || 'whatsapp' in changes) && !('telefone_tipo' in changes)) {
     changes.telefone_tipo = inferPhoneType({ ...before, ...changes });

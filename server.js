@@ -32,6 +32,7 @@ const APP_ACCESS_KEY = String(process.env.APP_ACCESS_KEY || '').trim();
 const publicDir = path.resolve(process.cwd(), 'public');
 const sharedFiles = {
   '/shared/hygiene.js': path.resolve(process.cwd(), 'src', 'hygiene.js'),
+  '/shared/domain_signals.js': path.resolve(process.cwd(), 'src', 'domain_signals.js'),
   '/shared/scoring_modes.js': path.resolve(process.cwd(), 'src', 'scoring_modes.js'),
   '/shared/copy_engine.js': path.resolve(process.cwd(), 'src', 'copy_engine.js'),
   '/shared/cadence_engine.js': path.resolve(process.cwd(), 'src', 'cadence_engine.js'),

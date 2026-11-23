@@ -308,3 +308,107 @@ test('generateSmartCopy incorpora Prova Social Hiper-Local sem vazar nome do cli
   assert.ok(res.text.includes('landing page com WhatsApp integrado'));
   assert.equal(res.text.includes('Clínica Referência Confidencial'), false);
 });
+
+test('dores de 2ª geração pontuam em cacador_digital, Lentes Customizadas e entram na Auto-Calibragem sem contaminação legada', () => {
+  const leadBaseOnline = {
+    id: 'g2-base',
+    nome_fantasia: 'Loja Online Base',
+    website: 'https://lojabasedigital.com.br',
+    whatsapp: '(33) 99999-1111',
+    diagnostico_fatos: { website_audit: { online: true, https: true } },
+    etiquetas_dor: [],
+  };
+
+  const leadComDores2G = {
+    ...leadBaseOnline,
+    id: 'g2-ecom',
+    etiquetas_dor: ['E-commerce sem Pixel', 'Sem Mobile', 'Site Lento'],
+  };
+
+  const leadLinkBio = {
+    id: 'g2-bio',
+    nome_fantasia: 'Studio Bio',
+    website: 'https://linktr.ee/studiobio',
+    whatsapp: '(33) 99999-2222',
+    etiquetas_dor: ['Só Link na Bio'],
+  };
+
+  const evBase = evaluateLead(leadBaseOnline, 'cacador_digital');
+  const ev2G = evaluateLead(leadComDores2G, 'cacador_digital');
+  const evBio = evaluateLead(leadLinkBio, 'cacador_digital');
+
+  assert.ok(ev2G.score > evBase.score);
+  assert.ok(ev2G.breakdown.some((b) => b.fator === 'E-commerce sem Pixel' && b.pontos > 0));
+  assert.ok(ev2G.breakdown.some((b) => b.fator === 'Sem Mobile' && b.pontos > 0));
+  assert.ok(ev2G.breakdown.some((b) => b.fator === 'Site Lento' && b.pontos > 0));
+
+  assert.ok(evBio.score > evBase.score);
+  assert.ok(evBio.breakdown.some((b) => b.fator === 'Só Link na Bio' && b.pontos > 0));
+
+  const customLens = {
+    id: 'lens_g2',
+    nome: 'Lente E-commerce & Mobile',
+    pesos: {
+      so_link_bio: 15,
+      ecommerce_sem_pixel: 28,
+      sem_mobile: 18,
+      site_lento: 12,
+    },
+    filtros: {},
+  };
+  const evLens2G = evaluateLead(leadComDores2G, customLens);
+  const evLensBio = evaluateLead(leadLinkBio, customLens);
+  assert.ok(evLens2G.breakdown.some((b) => b.fator === 'E-commerce sem Pixel' && b.pontos === 28));
+  assert.ok(evLens2G.breakdown.some((b) => b.fator === 'Sem Mobile' && b.pontos === 18));
+  assert.ok(evLens2G.breakdown.some((b) => b.fator === 'Site Lento' && b.pontos === 12));
+  assert.ok(evLensBio.breakdown.some((b) => b.fator === 'Só Link na Bio' && b.pontos === 15));
+
+  // Auto-Calibragem com 4 dores de 2ª geração + leads legados contraditórios (Sem Site + Sem Mobile)
+  const dataset = [];
+  for (let i = 0; i < 10; i++) {
+    dataset.push({
+      id: `ecom-ok-${i}`,
+      status: i < 8 ? 'CLIENTE' : 'CONTATADO',
+      website: `https://ecom${i}.com.br`,
+      diagnostico_fatos: { website_audit: { online: true } },
+      etiquetas_dor: ['E-commerce sem Pixel', 'Sem Mobile', 'Site Lento'],
+    });
+  }
+  for (let i = 0; i < 6; i++) {
+    dataset.push({
+      id: `bio-ok-${i}`,
+      status: i < 5 ? 'PROPOSTA' : 'CONTATADO',
+      website: `https://linktr.ee/loja${i}`,
+      etiquetas_dor: ['Só Link na Bio'],
+    });
+  }
+  for (let i = 0; i < 24; i++) {
+    dataset.push({
+      id: `legacy-dirty-${i}`,
+      status: 'DESCARTADO',
+      website: null,
+      // Sem Mobile e Site Lento contraditórios com website: null devem ser descartados por sanitizePainTags
+      etiquetas_dor: ['Sem Site', 'Sem Mobile', 'Site Lento'],
+    });
+  }
+
+  const analysis = analyzeEmpiricalPerformance(dataset);
+  const sigEcom = analysis.sinais.find((s) => s.chave === 'dor:E-commerce sem Pixel');
+  const sigBio = analysis.sinais.find((s) => s.chave === 'dor:Só Link na Bio');
+  const sigMobile = analysis.sinais.find((s) => s.chave === 'dor:Sem Mobile');
+  const sigLento = analysis.sinais.find((s) => s.chave === 'dor:Site Lento');
+
+  assert.equal(sigEcom?.amostra, 10);
+  assert.equal(sigBio?.amostra, 6);
+  // Se os 24 leads sujos sem site não fossem sanitizados, Sem Mobile e Site Lento teriam amostra 34 em vez de 10!
+  assert.equal(sigMobile?.amostra, 10);
+  assert.equal(sigLento?.amostra, 10);
+  assert.ok(sigEcom.delta_peso_sugerido > 0);
+  assert.ok(sigBio.delta_peso_sugerido > 0);
+
+  const proposal = buildCalibratedLensProposal(dataset, 'equilibrado');
+  const compEcom = proposal.comparativo.find((c) => c.campo === 'ecommerce_sem_pixel');
+  const compBio = proposal.comparativo.find((c) => c.campo === 'so_link_bio');
+  assert.ok(compEcom && compEcom.depois > compEcom.antes);
+  assert.ok(compBio && compBio.depois > compBio.antes);
+});

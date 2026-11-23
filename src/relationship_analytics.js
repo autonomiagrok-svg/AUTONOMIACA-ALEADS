@@ -1,14 +1,5 @@
 import { analyzeLeadCadence, CLIENT_SIGNALS } from './cadence_engine.js';
-
-function inferOriginLabel(lead) {
-  const fonte = String(lead?.fonte || '');
-  const url = String(lead?.fonte_url || '');
-  const lote = String(lead?.lote_origem || '');
-  if (lead?.fonte_tipo === 'MAPS' || /google\s*maps/i.test(fonte) || url.includes('google.com/maps')) return 'Maps';
-  if (/openstreetmap|overpass/i.test(fonte) || url.includes('openstreetmap.org')) return 'OSM';
-  if (/csv|importa[cç][aã]o/i.test(fonte) || /^CSV\s*•/i.test(lote)) return 'CSV';
-  return 'Manual';
-}
+import { inferOrigin } from './domain_signals.js';
 
 function pct(part, total) {
   if (!total) return 0;
@@ -78,7 +69,7 @@ export function computeRelationshipInsights(leads, { now = new Date(), modeId = 
       }
     }
 
-    const origLabel = inferOriginLabel(lead);
+    const origLabel = inferOrigin(lead).label;
     const origStats = originMap.get(origLabel);
     origStats.total++;
     if (isContacted) origStats.contatados++;

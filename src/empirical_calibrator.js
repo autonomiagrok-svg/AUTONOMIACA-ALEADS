@@ -1,4 +1,4 @@
-import { normalizePhone } from './hygiene.js';
+import { sanitizePainTags, extractContactProfile, inferOriginKey } from './domain_signals.js';
 import { DEFAULT_LENS_WEIGHTS, getPresetWeights } from './scoring_modes.js';
 
 const ALPHA = 5;
@@ -17,8 +17,12 @@ const CONFIDENCE_WEIGHT = {
 const PAIN_TO_WEIGHT_KEY = {
   'Sem Site': 'sem_site',
   'Site Fora do Ar': 'sem_site',
+  'Só Link na Bio': 'so_link_bio',
   'Site sem WhatsApp': 'site_sem_whatsapp',
   'Sem Tráfego Rastreado': 'sem_trafego',
+  'E-commerce sem Pixel': 'ecommerce_sem_pixel',
+  'Sem Mobile': 'sem_mobile',
+  'Site Lento': 'site_lento',
   'Sem HTTPS': 'sem_https',
   'Empresa Recente': 'empresa_recente',
   'Só Telefone Fixo': 'so_fixo_penalidade',
@@ -27,8 +31,12 @@ const PAIN_TO_WEIGHT_KEY = {
 const WEIGHT_LABELS = {
   tem_whatsapp: 'WhatsApp / Celular válido',
   sem_site: 'Sem Site / Fora do Ar',
+  so_link_bio: 'Só Link na Bio',
   site_sem_whatsapp: 'Site sem WhatsApp',
   sem_trafego: 'Sem Tráfego Rastreado',
+  ecommerce_sem_pixel: 'E-commerce sem Pixel',
+  sem_mobile: 'Sem Mobile',
+  site_lento: 'Site Lento',
   sem_https: 'Sem HTTPS',
   empresa_recente: 'Empresa Recente (<= 18m)',
   nota_alta: 'Nota >= 4.2 no Maps',
@@ -37,24 +45,11 @@ const WEIGHT_LABELS = {
   so_fixo_penalidade: 'Só Telefone Fixo',
 };
 
-function inferOriginKey(lead) {
-  const fonte = String(lead?.fonte || '');
-  const url = String(lead?.fonte_url || '');
-  const lote = String(lead?.lote_origem || '');
-  if (lead?.fonte_tipo === 'MAPS' || /google\s*maps/i.test(fonte) || url.includes('google.com/maps')) return 'MAPS';
-  if (/openstreetmap|overpass/i.test(fonte) || url.includes('openstreetmap.org')) return 'OSM';
-  if (/csv|importa[cç][aã]o/i.test(fonte) || /^CSV\s*•/i.test(lote)) return 'CSV';
-  return 'MANUAL';
-}
-
 function getPainTags(lead) {
-  const tags = new Set(Array.isArray(lead?.etiquetas_dor) ? lead.etiquetas_dor : []);
-  if (!lead?.website) tags.add('Sem Site');
-  const waNorm = normalizePhone(lead?.whatsapp);
-  const telNorm = normalizePhone(lead?.telefone);
-  const hasMobile = (waNorm.valido && waNorm.whatsapp_provavel) || (telNorm.valido && telNorm.whatsapp_provavel);
-  const hasFixo = (waNorm.valido && waNorm.tipo === 'FIXO') || (telNorm.valido && telNorm.tipo === 'FIXO');
-  if (hasFixo && !hasMobile) tags.add('Só Telefone Fixo');
+  const tags = new Set(sanitizePainTags(lead));
+  if (extractContactProfile(lead).isLandlineOnly) {
+    tags.add('Só Telefone Fixo');
+  }
   return [...tags];
 }
 
@@ -173,12 +168,7 @@ export function analyzeEmpiricalPerformance(leads) {
       track('sinal:volume_avaliacoes', 'Volume >= 30 avaliações', 'reputacao', 'volume_avaliacoes', ok);
     }
 
-    const waNorm = normalizePhone(lead.whatsapp);
-    const telNorm = normalizePhone(lead.telefone);
-    const hasMobile = lead.whatsapp_status !== 'INVALIDO' && (
-      (waNorm.valido && waNorm.whatsapp_provavel) || (telNorm.valido && telNorm.whatsapp_provavel)
-    );
-    if (hasMobile) {
+    if (extractContactProfile(lead).hasMobile) {
       track('sinal:tem_whatsapp', 'WhatsApp / Celular válido', 'canal', 'tem_whatsapp', ok);
     }
 

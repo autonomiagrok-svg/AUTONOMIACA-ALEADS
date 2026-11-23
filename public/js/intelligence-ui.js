@@ -5,8 +5,12 @@
   const WEIGHT_FIELDS = [
     { key: 'tem_whatsapp', label: 'WhatsApp / Celular válido', min: -30, max: 40 },
     { key: 'sem_site', label: 'Sem Site / Fora do Ar', min: -30, max: 40 },
+    { key: 'so_link_bio', label: 'Só Link na Bio', min: -30, max: 40 },
     { key: 'site_sem_whatsapp', label: 'Site sem WhatsApp', min: -30, max: 40 },
     { key: 'sem_trafego', label: 'Sem Tráfego Rastreado', min: -30, max: 40 },
+    { key: 'ecommerce_sem_pixel', label: 'E-commerce sem Pixel', min: -30, max: 40 },
+    { key: 'sem_mobile', label: 'Sem Mobile', min: -30, max: 40 },
+    { key: 'site_lento', label: 'Site Lento', min: -30, max: 40 },
     { key: 'sem_https', label: 'Sem HTTPS', min: -30, max: 40 },
     { key: 'empresa_recente', label: 'Empresa Recente (<= 18m)', min: -30, max: 40 },
     { key: 'nota_alta', label: 'Nota >= 4.2 no Maps', min: -30, max: 40 },
@@ -35,7 +39,8 @@
 
   function emptyLensDraft(basePreset = 'equilibrado') {
     const pesos = window.ScoringModes?.getPresetWeights?.(basePreset) || {
-      tem_whatsapp: 15, sem_site: 20, site_sem_whatsapp: 25, sem_trafego: 15, sem_https: 10,
+      tem_whatsapp: 15, sem_site: 20, so_link_bio: 18, site_sem_whatsapp: 25, sem_trafego: 15,
+      ecommerce_sem_pixel: 20, sem_mobile: 14, site_lento: 10, sem_https: 10,
       empresa_recente: 10, nota_alta: 15, volume_avaliacoes: 10, cnpj_ativo: 10, so_fixo_penalidade: -15,
     };
     return {

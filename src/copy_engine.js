@@ -1,14 +1,7 @@
 import { evaluateLead } from './scoring_modes.js';
+import { hashString } from './domain_signals.js';
 
 const TOTAL_VARIATIONS = 4;
-
-function hashString(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (h * 31 + str.charCodeAt(i)) >>> 0;
-  }
-  return h;
-}
 
 function titleFirstName(fullName) {
   const first = String(fullName || '').trim().split(/\s+/)[0] || '';

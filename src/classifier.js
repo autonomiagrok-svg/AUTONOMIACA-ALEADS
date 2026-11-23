@@ -1,5 +1,8 @@
 import { normalizePhone, validateCNPJ } from './hygiene.js';
 import { validateExternalUrl } from './http/ssrf_guard.js';
+import { SITE_DEPENDENT_PAIN_TAGS, LINK_BIO_RE, extractContactProfile } from './domain_signals.js';
+
+export { SITE_DEPENDENT_PAIN_TAGS };
 
 const MAX_HTML_BYTES = 512 * 1024; // 512 KB
 const cnpjCache = new Map();
@@ -8,17 +11,6 @@ const IGNORED_EMAIL_EXT_RE = /\.(png|jpe?g|gif|svg|webp|ico|js|css|woff2?|ttf|eo
 const IGNORED_EMAIL_DOMAIN_RE = /(sentry|wixpress|example\.com|yourdomain|domain\.com|email\.com|teste\.com)/i;
 const IGNORED_IG_PATHS = new Set([
   'p', 'reel', 'reels', 'stories', 'explore', 'accounts', 'about', 'legal', 'directory', 'developer', 'tv',
-]);
-
-const LINK_BIO_RE = /(?:linktr\.ee|bio\.site|beacons\.ai|instabio|canva\.site)/i;
-
-export const SITE_DEPENDENT_PAIN_TAGS = new Set([
-  'Sem HTTPS',
-  'Site sem WhatsApp',
-  'Sem Tráfego Rastreado',
-  'Sem Mobile',
-  'Site Lento',
-  'E-commerce sem Pixel',
 ]);
 
 function normalizeHeaders(headers = {}) {
@@ -308,11 +300,7 @@ export function buildPainTags(lead, facts = {}, referenceDate = new Date()) {
     }
   }
 
-  const waNorm = normalizePhone(lead?.whatsapp);
-  const telNorm = normalizePhone(lead?.telefone);
-  const hasMobile = (waNorm.valido && waNorm.whatsapp_provavel) || (telNorm.valido && telNorm.whatsapp_provavel);
-  const hasFixo = (waNorm.valido && waNorm.tipo === 'FIXO') || (telNorm.valido && telNorm.tipo === 'FIXO');
-  if (hasFixo && !hasMobile) {
+  if (extractContactProfile(lead).isLandlineOnly) {
     tags.add('Só Telefone Fixo');
   }
 

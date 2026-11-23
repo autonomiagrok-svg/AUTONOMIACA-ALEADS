@@ -59,6 +59,9 @@
   };
 
   window.inferLeadOrigin = function inferLeadOrigin(lead) {
+    if (window.DomainSignals?.inferOrigin) {
+      return window.DomainSignals.inferOrigin(lead);
+    }
     const fonte = String(lead?.fonte || '');
     const url = String(lead?.fonte_url || '');
     const lote = String(lead?.lote_origem || '');
@@ -80,14 +83,15 @@
     return `<span class="origin-badge origin-${key}" title="${window.esc(title)}">${label}</span>`;
   };
 
-  const SITE_DEPENDENT_TAGS = new Set([
+  const FALLBACK_SITE_DEPENDENT_TAGS = new Set([
     'Sem HTTPS', 'Site sem WhatsApp', 'Sem Tráfego Rastreado', 'Sem Mobile', 'Site Lento', 'E-commerce sem Pixel',
   ]);
 
   window.renderPainBadges = function renderPainBadges(tags) {
     if (!Array.isArray(tags) || !tags.length) return '';
+    const siteDep = window.DomainSignals?.SITE_DEPENDENT_PAIN_TAGS || FALLBACK_SITE_DEPENDENT_TAGS;
     const hasNoOnlineSite = tags.includes('Sem Site') || tags.includes('Site Fora do Ar') || tags.includes('Só Link na Bio');
-    const cleanTags = hasNoOnlineSite ? tags.filter((t) => !SITE_DEPENDENT_TAGS.has(t)) : tags;
+    const cleanTags = hasNoOnlineSite ? tags.filter((t) => !siteDep.has(t)) : tags;
     return cleanTags
       .map((tag) => {
         const isCritical = tag === 'CNPJ Inativo' || tag === 'Site Fora do Ar';

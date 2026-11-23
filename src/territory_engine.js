@@ -1,5 +1,5 @@
 import { evaluateLead } from './scoring_modes.js';
-import { normalizePhone } from './hygiene.js';
+import { extractContactProfile } from './domain_signals.js';
 
 function normText(v) {
   return String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -251,14 +251,11 @@ export function findLookalikeLeads(referenceLead, allLeads, options = {}) {
     }
 
     // 5. Acionabilidade de Canal (10 pts)
-    const waNorm = normalizePhone(cand.whatsapp);
-    const telNorm = normalizePhone(cand.telefone);
-    const hasMobile = (waNorm.valido && waNorm.whatsapp_provavel) || (telNorm.valido && telNorm.whatsapp_provavel);
-    const hasFixo = waNorm.valido || telNorm.valido;
-    if (hasMobile) {
+    const contact = extractContactProfile(cand);
+    if (contact.hasMobile) {
       similarity += 10;
       razoes_match.push('WhatsApp direto disponível');
-    } else if (hasFixo) {
+    } else if (contact.hasAnyPhone) {
       similarity += 4;
     }
 

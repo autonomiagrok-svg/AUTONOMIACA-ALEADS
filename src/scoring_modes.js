@@ -1,10 +1,16 @@
-import { normalizePhone } from './hygiene.js';
+import { SITE_DEPENDENT_PAIN_TAGS, sanitizePainTags, extractContactProfile } from './domain_signals.js';
+
+export { SITE_DEPENDENT_PAIN_TAGS, sanitizePainTags };
 
 export const DEFAULT_LENS_WEIGHTS = {
   tem_whatsapp: 15,
   sem_site: 20,
+  so_link_bio: 18,
   site_sem_whatsapp: 25,
   sem_trafego: 15,
+  ecommerce_sem_pixel: 20,
+  sem_mobile: 14,
+  site_lento: 10,
   sem_https: 10,
   empresa_recente: 10,
   nota_alta: 15,
@@ -17,8 +23,12 @@ export const PRESET_WEIGHTS = {
   equilibrado: {
     tem_whatsapp: 18,
     sem_site: 12,
+    so_link_bio: 10,
     site_sem_whatsapp: 12,
     sem_trafego: 12,
+    ecommerce_sem_pixel: 12,
+    sem_mobile: 8,
+    site_lento: 6,
     sem_https: 6,
     empresa_recente: 8,
     nota_alta: 10,
@@ -29,8 +39,12 @@ export const PRESET_WEIGHTS = {
   cacador_digital: {
     tem_whatsapp: 15,
     sem_site: 22,
+    so_link_bio: 20,
     site_sem_whatsapp: 18,
     sem_trafego: 12,
+    ecommerce_sem_pixel: 22,
+    sem_mobile: 14,
+    site_lento: 10,
     sem_https: 8,
     empresa_recente: 6,
     nota_alta: 12,
@@ -41,8 +55,12 @@ export const PRESET_WEIGHTS = {
   venda_direta: {
     tem_whatsapp: 25,
     sem_site: 0,
+    so_link_bio: 0,
     site_sem_whatsapp: 0,
     sem_trafego: 0,
+    ecommerce_sem_pixel: 0,
+    sem_mobile: 0,
+    site_lento: 0,
     sem_https: 0,
     empresa_recente: 0,
     nota_alta: 5,
@@ -53,8 +71,12 @@ export const PRESET_WEIGHTS = {
   novos_entrantes: {
     tem_whatsapp: 18,
     sem_site: 8,
+    so_link_bio: 8,
     site_sem_whatsapp: 8,
     sem_trafego: 5,
+    ecommerce_sem_pixel: 5,
+    sem_mobile: 6,
+    site_lento: 4,
     sem_https: 4,
     empresa_recente: 35,
     nota_alta: 12,
@@ -99,80 +121,10 @@ function normStr(val) {
   return String(val ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
-const LINK_BIO_RE = /(?:linktr\.ee|bio\.site|beacons\.ai|instabio|canva\.site)/i;
-
-export const SITE_DEPENDENT_PAIN_TAGS = new Set([
-  'Sem HTTPS',
-  'Site sem WhatsApp',
-  'Sem Tráfego Rastreado',
-  'Sem Mobile',
-  'Site Lento',
-  'E-commerce sem Pixel',
-]);
-
-/**
- * Sanitiza etiquetas de dor em tempo de leitura/gravação, removendo etiquetas que dependem
- * de um site próprio online quando o lead não tem site, tem só Link na Bio ou site fora do ar.
- */
-export function sanitizePainTags(lead) {
-  const tags = new Set(Array.isArray(lead?.etiquetas_dor) ? lead.etiquetas_dor.filter(Boolean) : []);
-  const rawSite = String(lead?.website || '').trim();
-  const audit = lead?.diagnostico_fatos?.website_audit || null;
-  const isLinkBio = Boolean(
-    rawSite && (
-      LINK_BIO_RE.test(rawSite)
-      || (Array.isArray(audit?.stack_detectada) && audit.stack_detectada.includes('LINK_BIO'))
-    )
-  );
-  const siteOffline = audit?.online === false;
-  const shouldStripSiteDependent = !rawSite
-    || isLinkBio
-    || siteOffline
-    || tags.has('Sem Site')
-    || tags.has('Site Fora do Ar')
-    || tags.has('Só Link na Bio');
-
-  if (shouldStripSiteDependent) {
-    for (const depTag of SITE_DEPENDENT_PAIN_TAGS) {
-      tags.delete(depTag);
-    }
-  }
-
-  if (!rawSite) {
-    tags.delete('Site Fora do Ar');
-    tags.delete('Só Link na Bio');
-    tags.add('Sem Site');
-  } else if (isLinkBio) {
-    tags.delete('Sem Site');
-    tags.add('Só Link na Bio');
-  } else if (siteOffline) {
-    tags.delete('Sem Site');
-    tags.add('Site Fora do Ar');
-  }
-
-  return [...tags];
-}
-
 function inferBaselinePainTags(lead) {
   const tags = new Set(sanitizePainTags(lead));
-
-  const waNorm = normalizePhone(lead?.whatsapp);
-  const telNorm = normalizePhone(lead?.telefone);
-  const hasMobile = (waNorm.valido && waNorm.whatsapp_provavel) || (telNorm.valido && telNorm.whatsapp_provavel);
-  const hasFixo = (waNorm.valido && waNorm.tipo === 'FIXO') || (telNorm.valido && telNorm.tipo === 'FIXO');
-  if (hasFixo && !hasMobile) tags.add('Só Telefone Fixo');
-
+  if (extractContactProfile(lead).isLandlineOnly) tags.add('Só Telefone Fixo');
   return [...tags];
-}
-
-function getChannelSignals(lead) {
-  const waNorm = normalizePhone(lead?.whatsapp);
-  const telNorm = normalizePhone(lead?.telefone);
-  const waInvalid = lead?.whatsapp_status === 'INVALIDO';
-  const hasMobile = !waInvalid && ((waNorm.valido && waNorm.whatsapp_provavel) || (telNorm.valido && telNorm.whatsapp_provavel));
-  const hasAnyPhone = waNorm.valido || telNorm.valido;
-  const hasEmail = Boolean(lead?.email);
-  return { hasMobile, hasAnyPhone, hasEmail, waInvalid };
 }
 
 function formatRatingPrefix(lead) {
@@ -192,7 +144,7 @@ function finalizeBreakdown(entries) {
 
 function evaluateCustomLens(lead, lens) {
   const tags = inferBaselinePainTags(lead);
-  const { hasMobile, hasAnyPhone, hasEmail, waInvalid } = getChannelSignals(lead);
+  const { hasMobile, hasAnyPhone, hasEmail, waInvalid } = extractContactProfile(lead);
   const cnpjInfo = lead?.diagnostico_fatos?.cnpj_info || null;
   const cnpjInativo = tags.includes('CNPJ Inativo');
   const cnpjActive = Boolean((cnpjInfo && !cnpjInativo) || (!cnpjInfo && lead?.cnpj && !cnpjInativo));
@@ -217,8 +169,12 @@ function evaluateCustomLens(lead, lens) {
   if (hasMobile) add('WhatsApp / celular válido', pesos.tem_whatsapp, 'WhatsApp direto');
   if (tags.includes('Sem Site')) add('Sem Site', pesos.sem_site, 'sem site próprio');
   else if (tags.includes('Site Fora do Ar')) add('Site Fora do Ar', pesos.sem_site, 'site fora do ar');
+  if (tags.includes('Só Link na Bio')) add('Só Link na Bio', pesos.so_link_bio, 'só Link na Bio');
   if (tags.includes('Site sem WhatsApp')) add('Site sem WhatsApp', pesos.site_sem_whatsapp, 'site sem WhatsApp');
   if (tags.includes('Sem Tráfego Rastreado')) add('Sem Tráfego Rastreado', pesos.sem_trafego, 'sem Pixel/GTM');
+  if (tags.includes('E-commerce sem Pixel')) add('E-commerce sem Pixel', pesos.ecommerce_sem_pixel, 'e-commerce sem Pixel');
+  if (tags.includes('Sem Mobile')) add('Sem Mobile', pesos.sem_mobile, 'sem versão mobile');
+  if (tags.includes('Site Lento')) add('Site Lento', pesos.site_lento, 'site lento');
   if (tags.includes('Sem HTTPS')) add('Sem HTTPS', pesos.sem_https, 'sem HTTPS');
   if (tags.includes('Empresa Recente')) add('Empresa Recente (<= 18m)', pesos.empresa_recente, 'empresa recente');
   if (av >= 4.2) add(`Nota ${av} no Maps`, pesos.nota_alta, `nota ${av}★`);
@@ -287,7 +243,7 @@ export function evaluateLead(lead, modeOrLens = 'equilibrado') {
 
   const mode = SCORING_MODES.some((m) => m.id === modeOrLens) ? modeOrLens : 'equilibrado';
   const tags = inferBaselinePainTags(lead);
-  const { hasMobile, hasAnyPhone, hasEmail, waInvalid } = getChannelSignals(lead);
+  const { hasMobile, hasAnyPhone, hasEmail, waInvalid } = extractContactProfile(lead);
   const audit = lead?.diagnostico_fatos?.website_audit || null;
   const cnpjInfo = lead?.diagnostico_fatos?.cnpj_info || null;
 
@@ -319,8 +275,12 @@ export function evaluateLead(lead, modeOrLens = 'equilibrado') {
     const digitalGaps = [];
     if (tags.includes('Sem Site')) { add('Sem Site', 22); digitalGaps.push('sem site próprio'); }
     if (tags.includes('Site Fora do Ar')) { add('Site Fora do Ar', 18); digitalGaps.push('site fora do ar'); }
+    if (tags.includes('Só Link na Bio')) { add('Só Link na Bio', 20); digitalGaps.push('só Link na Bio'); }
+    if (tags.includes('E-commerce sem Pixel')) { add('E-commerce sem Pixel', 22); digitalGaps.push('e-commerce sem Pixel'); }
     if (tags.includes('Site sem WhatsApp')) { add('Site sem WhatsApp', 18); digitalGaps.push('site sem WhatsApp'); }
     if (tags.includes('Sem Tráfego Rastreado')) { add('Sem Tráfego Rastreado', 12); digitalGaps.push('sem Pixel/GTM'); }
+    if (tags.includes('Sem Mobile')) { add('Sem Mobile', 14); digitalGaps.push('sem mobile'); }
+    if (tags.includes('Site Lento')) { add('Site Lento', 10); digitalGaps.push('site lento'); }
     if (tags.includes('Sem HTTPS')) { add('Sem HTTPS', 8); digitalGaps.push('sem HTTPS'); }
 
     if (hasMobile) add('WhatsApp / celular direto', 15);
@@ -420,7 +380,10 @@ export function evaluateLead(lead, modeOrLens = 'equilibrado') {
     const ratingStr = formatRatingPrefix(lead);
     if (ratingStr) highlights.unshift(ratingStr);
 
-    if (tags.some((t) => ['Sem Site', 'Site sem WhatsApp', 'Sem Tráfego Rastreado', 'Site Fora do Ar'].includes(t))) {
+    if (tags.some((t) => [
+      'Sem Site', 'Site sem WhatsApp', 'Sem Tráfego Rastreado', 'Site Fora do Ar',
+      'Só Link na Bio', 'E-commerce sem Pixel', 'Sem Mobile', 'Site Lento',
+    ].includes(t))) {
       add('Oportunidade digital aberta', 12);
       highlights.push('oportunidade digital aberta');
     }

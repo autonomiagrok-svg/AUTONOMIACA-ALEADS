@@ -239,6 +239,29 @@ test('trava de consistência impede etiquetas de site online em leads Sem Site, 
     const saved = createLead(legacyDirtyLead);
     await flushWrites();
     assert.deepEqual(saved.etiquetas_dor, ['Sem Site']);
+    assert.equal(saved.score, evaluateLead(saved, 'equilibrado').score);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createLead aposenta scoreLead legado e grava score idêntico a evaluateLead(lead, equilibrado)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'autonomia-score-sync-'));
+  try {
+    setStoreFile(path.join(dir, 'leads.json'));
+    const lead = createLead({
+      nome_fantasia: 'Bar Teste Centro',
+      segmento: 'BAR',
+      bairro: 'Centro',
+      potencial: 'ALTO',
+      whatsapp: '(33) 99999-5555',
+      avaliacao: 4.6,
+      total_avaliacoes: 45,
+      website: 'https://barteste.com.br',
+      etiquetas_dor: ['Site sem WhatsApp'],
+    });
+    await flushWrites();
+    assert.equal(lead.score, evaluateLead(lead, 'equilibrado').score);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

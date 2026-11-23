@@ -3,36 +3,12 @@ import { collectLeadFacts } from './classifier.js';
 import { summarizeMatrix } from './value_matrix.js';
 import { evaluateLead } from './scoring_modes.js';
 import { normalizePhone, validateCNPJ } from './hygiene.js';
+import { mapCategoryToSegment } from './domain_signals.js';
+
+export { mapCategoryToSegment };
 
 const DEFAULT_DIAGNOSE_LIMIT = 25;
 const DEFAULT_CONCURRENCY = 3;
-
-export function mapCategoryToSegment(rawCategory, explicitSegment) {
-  const exp = String(explicitSegment || '').trim().toUpperCase();
-  if (exp && exp !== 'OUTRO' && SEGMENTS.includes(exp)) return exp;
-
-  const cat = String(rawCategory || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  if (!cat) return SEGMENTS.includes(exp) ? exp : 'OUTRO';
-  if (/restaurante|churrascaria|pizzaria|bistro|cantina|sushi|comida|osteria/.test(cat)) return 'RESTAURANTE';
-  if (/bar|pub|choperia|chopperia|boteco|lounge/.test(cat)) return 'BAR';
-  if (/lanchonete|hamburgueria|hamburger|acai|pastelaria|cafe|cafeteria|padoca|snack/.test(cat)) return 'LANCHONETE';
-  if (/padaria|panificadora|confeitaria/.test(cat)) return 'PADARIA';
-  if (/supermercado|hipermercado|atacarejo/.test(cat)) return 'SUPERMERCADO';
-  if (/mercado|minimercado|mercearia|emporio|hortifruti/.test(cat)) return 'MERCADO';
-  if (/adega|bebida|vinho|cervejaria/.test(cat)) return 'ADEGA';
-  if (/hotel|pousada|resort|hostel/.test(cat)) return 'HOTEL';
-  if (/evento|buffet|cerimonial|festas/.test(cat)) return 'EVENTOS';
-  if (/clinica|consultorio|odonto|dentista|medico|saude|fisioterapia|psicolog/.test(cat)) return 'CLINICA';
-  if (/academia|fitness|crossfit|pilates|musculacao/.test(cat)) return 'ACADEMIA';
-  if (/oficina|mecanica|auto center|funilaria|borracharia/.test(cat)) return 'OFICINA';
-  if (/farmacia|drogaria/.test(cat)) return 'FARMACIA';
-  if (/salao|barbearia|estetica|beleza|manicure/.test(cat)) return 'SALAO';
-  if (/pet\s*shop|veterinari|banho\s*e\s*tosa|racao|animais/.test(cat)) return 'PETSHOP';
-  if (/imobiliaria|corretor de imoveis/.test(cat)) return 'IMOBILIARIA';
-  if (/escritorio|contabilidade|advocacia|consultoria/.test(cat)) return 'ESCRITORIO';
-  if (/loja|boutique|comercio|magazine/.test(cat)) return 'LOJA';
-  return SEGMENTS.includes(exp) ? exp : 'OUTRO';
-}
 
 export function hygienizeMapsLead(raw, { defaultSegment = null, loteOrigem = null } = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
@@ -51,7 +27,7 @@ export function hygienizeMapsLead(raw, { defaultSegment = null, loteOrigem = nul
   const cnpjCheck = raw.cnpj ? validateCNPJ(raw.cnpj) : null;
   const cnpj = cnpjCheck?.valido ? cnpjCheck.formatted : (raw.cnpj || null);
 
-  const mappedSeg = mapCategoryToSegment(raw.categoria_raw, raw.segmento);
+  const mappedSeg = mapCategoryToSegment(raw.categoria_raw, raw.segmento, SEGMENTS);
   const segmento = mappedSeg !== 'OUTRO'
     ? mappedSeg
     : (defaultSegment && SEGMENTS.includes(defaultSegment) ? defaultSegment : 'OUTRO');

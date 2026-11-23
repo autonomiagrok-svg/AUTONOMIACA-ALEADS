@@ -330,7 +330,7 @@ async function dashboard(v) {
 }
 
 let LAST_LOADED_LEADS = [];
-let LEAD_FILTERS = { status: '', segmento: '', cidade: '', whatsapp: '', verificacao: '', fonte: '', origem: '', dor: '', sort: 'score' };
+let LEAD_FILTERS = { status: '', segmento: '', cidade: '', whatsapp: '', verificacao: '', fonte: '', origem: '', dor: '', lote: '', sort: 'score' };
 
 function syncLeadFiltersFromDom() {
   if ($('#fStatus')) LEAD_FILTERS.status = $('#fStatus').value;
@@ -341,12 +341,13 @@ function syncLeadFiltersFromDom() {
   if ($('#fFonte')) LEAD_FILTERS.fonte = $('#fFonte').value;
   if ($('#fOrigem')) LEAD_FILTERS.origem = $('#fOrigem').value;
   if ($('#fDor')) LEAD_FILTERS.dor = $('#fDor').value;
+  if ($('#fLote')) LEAD_FILTERS.lote = $('#fLote').value;
   if ($('#fSort')) LEAD_FILTERS.sort = $('#fSort').value;
 }
 
 async function leads(v) {
   const q = $('#search')?.value || '';
-  const { status, segmento, cidade, whatsapp, verificacao, fonte, origem, dor, sort } = LEAD_FILTERS;
+  const { status, segmento, cidade, whatsapp, verificacao, fonte, origem, dor, lote, sort } = LEAD_FILTERS;
   const params = new URLSearchParams();
   if (q) params.set('q', q);
   if (status) params.set('status', status);
@@ -356,6 +357,7 @@ async function leads(v) {
   if (verificacao) params.set('verificacao', verificacao);
   if (fonte) params.set('fonte', fonte);
   if (origem) params.set('origem', origem);
+  if (lote) params.set('lote', lote);
   if (sort) params.set('sort', sort);
   const data = await api('/api/leads?' + params.toString());
   LAST_LOADED_LEADS = data.items || [];
@@ -363,7 +365,7 @@ async function leads(v) {
 }
 
 function renderLeadsView(v, filterState) {
-  const { status, segmento, cidade, whatsapp, verificacao, fonte, origem, dor, sort } = filterState;
+  const { status, segmento, cidade, whatsapp, verificacao, fonte, origem, dor, lote, sort } = filterState;
   const activeLensOrMode = window.getActiveLensOrMode?.() || window.getActiveScoringMode?.() || 'equilibrado';
   const evalMap = new Map();
 
@@ -393,7 +395,20 @@ function renderLeadsView(v, filterState) {
   const pageEntries = evaluated.slice((LEAD_PAGE - 1) * LEAD_PAGE_SIZE, LEAD_PAGE * LEAD_PAGE_SIZE);
   const visibleIds = pageEntries.map((e) => e.lead.id);
 
-  const standardDores = ['Sem Site', 'Site Fora do Ar', 'Sem HTTPS', 'Site sem WhatsApp', 'Sem Tráfego Rastreado', 'Só Telefone Fixo', 'Empresa Recente', 'CNPJ Inativo'];
+  const standardDores = [
+    'Sem Site',
+    'Site Fora do Ar',
+    'Só Link na Bio',
+    'E-commerce sem Pixel',
+    'Sem Mobile',
+    'Site Lento',
+    'Sem HTTPS',
+    'Site sem WhatsApp',
+    'Sem Tráfego Rastreado',
+    'Só Telefone Fixo',
+    'Empresa Recente',
+    'CNPJ Inativo',
+  ];
   const allDores = [...new Set([...(META.dores || []), ...standardDores])];
 
   v.innerHTML = `
@@ -416,6 +431,7 @@ function renderLeadsView(v, filterState) {
       <select id="fWhatsapp" onchange="resetLeadPage()"><option value="">WhatsApp: todos</option><option value="1" ${whatsapp === '1' ? 'selected' : ''}>Com número de WhatsApp</option><option value="0" ${whatsapp === '0' ? 'selected' : ''}>Sem WhatsApp ou inválido</option></select>
       <select id="fVerificacao" onchange="resetLeadPage()"><option value="">Verificação: todas</option>${(META.whatsapp_status || []).map((s) => `<option value="${s}" ${verificacao === s ? 'selected' : ''}>${s.replaceAll('_',' ')}</option>`).join('')}</select>
       <select id="fFonte" onchange="resetLeadPage()"><option value="">Todas as fontes</option>${(META.fontes || []).map((s) => `<option value="${esc(s)}" ${fonte === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
+      <select id="fLote" onchange="resetLeadPage()"><option value="">Todos os lotes</option>${(META.lotes || []).map((l) => `<option value="${esc(l)}" ${lote === l ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
       <select id="fSort" onchange="resetLeadPage()"><option value="score" ${sort === 'score' ? 'selected' : ''}>Ordenar: score</option><option value="nome" ${sort === 'nome' ? 'selected' : ''}>Nome</option><option value="recente" ${sort === 'recente' ? 'selected' : ''}>Mais recentes</option><option value="verificado" ${sort === 'verificado' ? 'selected' : ''}>Verificação recente</option><option value="followup" ${sort === 'followup' ? 'selected' : ''}>Próximo follow-up</option></select>
       <button class="btn" onclick="show('leads')">Atualizar</button>
     </div>

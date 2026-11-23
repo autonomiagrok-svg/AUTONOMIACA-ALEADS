@@ -62,6 +62,7 @@
   <div id="modal" class="modal hidden"></div>
   <script type="module">
     import * as Hygiene from '/shared/hygiene.js';
+    import * as DomainSignals from '/shared/domain_signals.js';
     import * as ScoringModes from '/shared/scoring_modes.js';
     import * as CopyEngine from '/shared/copy_engine.js';
     import * as CadenceEngine from '/shared/cadence_engine.js';
@@ -70,6 +71,7 @@
     import * as TerritoryEngine from '/shared/territory_engine.js';
     import * as ValueMatrix from '/shared/value_matrix.js';
     window.Hygiene = Hygiene;
+    window.DomainSignals = DomainSignals;
     window.ScoringModes = ScoringModes;
     window.CopyEngine = CopyEngine;
     window.CadenceEngine = CadenceEngine;
