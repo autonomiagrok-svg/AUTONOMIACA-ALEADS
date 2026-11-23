@@ -174,7 +174,7 @@
           window.toast?.(`Diagnóstico concluído em ${res.diagnosed} lead(s)!`);
           if (typeof onDiagnosed === 'function') await onDiagnosed(res.items || []);
         } catch (err) {
-          window.toast?.('Erro no diagnóstico: ' + err.message);
+          if (!err?.offlineNotified) window.toast?.('Erro no diagnóstico: ' + err.message);
         } finally {
           batchBtn.disabled = false;
           batchBtn.textContent = `🔬 Diagnosticar Visíveis (${ids.length})`;
@@ -195,7 +195,7 @@
       window.toast?.('Raio-X do lead atualizado!');
       if (typeof window.openLead === 'function') await window.openLead(id);
     } catch (err) {
-      window.toast?.('Erro no diagnóstico: ' + err.message);
+      if (!err?.offlineNotified) window.toast?.('Erro no diagnóstico: ' + err.message);
       if (btn) {
         btn.disabled = false;
         btn.textContent = '🔬 Diagnosticar Lead';

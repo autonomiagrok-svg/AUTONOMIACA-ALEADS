@@ -36,6 +36,31 @@ function setOperator(nome) {
   if (OPEN_LEAD) updateMessageTemplate();
 }
 
+function updateSyncQueueBadge(state = null) {
+  const badge = $('#syncQueueBadge');
+  if (!badge) return;
+  const apply = (st) => {
+    const pending = Number(st?.pending || 0);
+    const syncing = Boolean(st?.syncing);
+    if (!pending && !syncing) {
+      badge.classList.add('hidden');
+      badge.classList.remove('syncing');
+      badge.textContent = '';
+      return;
+    }
+    badge.classList.remove('hidden');
+    badge.classList.toggle('syncing', syncing);
+    badge.textContent = syncing
+      ? `🔄 Sincronizando ${pending}...`
+      : `⏳ ${pending} pendente(s)`;
+  };
+  if (state) {
+    apply(state);
+  } else {
+    window.SyncQueue?.getStatus?.().then(apply).catch(() => {});
+  }
+}
+
 function updateOperationalStatusBar() {
   const pill = $('#networkStatusPill');
   if (pill) {
@@ -49,6 +74,7 @@ function updateOperationalStatusBar() {
     const storageMode = window.AppPorts?.config?.get?.()?.storage_mode || 'persistent';
     ephemBadge.classList.toggle('hidden', storageMode !== 'ephemeral');
   }
+  updateSyncQueueBadge();
 }
 
 async function api(path, opts = {}) {
@@ -87,6 +113,7 @@ function toast(msg) {
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 2800);
 }
+window.toast = toast;
 
 let APP_INITIALIZED = false;
 
@@ -115,6 +142,25 @@ async function init(configOverrides = null) {
     APP_INITIALIZED = true;
     window.addEventListener('online', updateOperationalStatusBar);
     window.addEventListener('offline', updateOperationalStatusBar);
+
+    window.SyncQueue?.setOnStatusChange?.((st) => {
+      updateSyncQueueBadge(st);
+      if (st?.synced > 0 && !st?.syncing) {
+        window.refreshMeta?.().catch(() => {});
+        window.refreshAgendaBadge?.();
+        toast(`${st.synced} alteração(ões) sincronizada(s) com o servidor!`);
+      }
+    });
+
+    $('#syncQueueBadge')?.addEventListener('click', async () => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return toast('Sem internet: aguardando conexão para sincronizar a fila local.');
+      }
+      const res = await window.SyncQueue?.flush?.({ force: true });
+      if (res && !res.synced && res.pending > 0 && res.halted) {
+        toast('Falha temporária ao sincronizar. Nova tentativa automática agendada.');
+      }
+    });
 
     $('#uiModeToggle')?.addEventListener('click', () => {
       const current = window.AppPorts?.config?.get?.()?.ui_mode || 'avancado';
@@ -149,6 +195,9 @@ async function init(configOverrides = null) {
   const startView = visible.includes(initialView) ? initialView : visible[0] || 'leads';
   await window.CacaLeadsVertical.navigate(startView);
   window.refreshAgendaBadge?.();
+  if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+    window.SyncQueue?.flush?.().catch(() => {});
+  }
 }
 
 window.CacaLeadsVertical = {
@@ -821,7 +870,8 @@ function getCustomTemplates() {
 }
 
 function saveCustomTemplates(templates) {
-  localStorage.setItem('autonomia_custom_templates', JSON.stringify(templates));
+  window.RuntimeAdapter?.setStorage('autonomia_custom_templates', JSON.stringify(templates));
+  window.OfflineStorage?.putMeta?.('templates', templates).catch(() => {});
 }
 
 const TEMPLATE_LABELS = {

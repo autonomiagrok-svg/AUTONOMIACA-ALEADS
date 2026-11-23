@@ -52,6 +52,7 @@
         <div class="top-actions">
           <div id="operationalStatusBar" class="operational-status-bar">
             <span id="networkStatusPill" class="status-pill online">🟢 Online</span>
+            <button type="button" id="syncQueueBadge" class="status-pill sync-queue hidden" title="Clique para sincronizar alterações pendentes"></button>
             <span id="ephemeralStorageBadge" class="status-pill ephemeral hidden">⚠️ Disco efêmero (faça Backup JSON)</span>
           </div>
           <button type="button" class="btn" id="uiModeToggle">🧠 Modo: Estratégico</button>
@@ -88,6 +89,8 @@
     window.ValueMatrix = ValueMatrix;
   </script>
   <script src="/js/runtime_adapter.js"></script>
+  <script src="/js/storage/indexeddb_adapter.js"></script>
+  <script src="/js/storage/sync_queue.js"></script>
   <script src="/js/ports/config.js"></script>
   <script src="/js/ports/input_adapter.js"></script>
   <script src="/js/ports/output_actions.js"></script>

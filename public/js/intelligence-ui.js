@@ -873,7 +873,9 @@
 
     document.getElementById('btnDownloadBackup')?.addEventListener('click', () => {
       (window.AppPorts?.outputActions?.exportBackup?.() || Promise.resolve())
-        .catch((err) => window.toast?.('Erro ao baixar backup: ' + err.message));
+        .catch((err) => {
+          if (!err?.offlineNotified) window.toast?.('Erro ao baixar backup: ' + err.message);
+        });
     });
   }
 

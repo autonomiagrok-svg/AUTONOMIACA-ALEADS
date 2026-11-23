@@ -453,7 +453,7 @@
         window.toast?.('Raio-X concluído!');
         renderDialerCard(container);
       } catch (err) {
-        window.toast?.('Erro: ' + err.message);
+        if (!err?.offlineNotified) window.toast?.('Erro: ' + err.message);
         if (btn) { btn.disabled = false; btn.textContent = '🔬 Raio-X'; }
       }
     });

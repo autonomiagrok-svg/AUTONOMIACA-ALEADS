@@ -10,3 +10,5 @@ services:
         value: 20.18.0
       - key: HOST
         value: 0.0.0.0
+      - key: STORAGE_EPHEMERAL
+        value: "true"

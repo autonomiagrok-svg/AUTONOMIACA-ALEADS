@@ -77,7 +77,7 @@ export function getConfig() {
       xray_v2: true,
       empirical_calibration: true,
       territory_lookalike: true,
-      offline_sync: false,
+      offline_sync: true,
       ...fileFlags,
     },
   };

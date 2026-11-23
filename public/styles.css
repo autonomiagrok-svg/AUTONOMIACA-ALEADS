@@ -639,6 +639,17 @@ body.shell-disabled .app { grid-template-columns: 1fr; }
 .status-pill.online { border-color: rgba(16, 185, 129, 0.45); background: rgba(16, 185, 129, 0.12); color: #34d399; }
 .status-pill.offline { border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
 .status-pill.ephemeral { border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
+.status-pill.sync-queue {
+  cursor: pointer;
+  border-color: rgba(0, 210, 255, 0.45);
+  background: rgba(0, 210, 255, 0.14);
+  color: var(--cyan);
+}
+.status-pill.sync-queue.syncing {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: rgba(16, 185, 129, 0.16);
+  color: #34d399;
+}
 .status-pill.hidden { display: none; }
 
 .dialog-box { max-width: 460px; }
@@ -653,7 +664,8 @@ body.shell-disabled .app { grid-template-columns: 1fr; }
   .mode-pill,
   .bucket-pill,
   .signal-chip,
-  .ap-chip {
+  .ap-chip,
+  .status-pill.sync-queue {
     min-height: var(--touch-target-min, 44px);
   }
   .btn,

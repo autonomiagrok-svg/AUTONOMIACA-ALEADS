@@ -399,7 +399,7 @@
         startPolling();
         window.toast?.(`Missão iniciada: "${res.mission.query}". A extensão vai rolar até o final e capturar tudo!`);
       } catch (err) {
-        window.toast?.('Erro ao iniciar missão: ' + err.message);
+        if (!err?.offlineNotified) window.toast?.('Erro ao iniciar missão: ' + err.message);
         btn.disabled = false;
         btn.textContent = '⚡ Iniciar Caça Completa no Google Maps';
       }

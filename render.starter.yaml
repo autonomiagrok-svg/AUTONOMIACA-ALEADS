@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: autonomiaca-aleads
+    runtime: node
+    plan: starter
+    buildCommand: ""
+    startCommand: npm start
+    disk:
+      name: autonomia-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: HOST
+        value: 0.0.0.0
+      - key: LEADS_FILE
+        value: /var/data/leads.json
+      - key: LENSES_FILE
+        value: /var/data/lenses.json
+      - key: STORAGE_EPHEMERAL
+        value: "false"
