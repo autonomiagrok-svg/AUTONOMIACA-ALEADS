@@ -38,6 +38,69 @@ function pushLog(mission, message) {
   }
 }
 
+const TELEMETRY_COUNTER_KEYS = [
+  'received',
+  'detail_ok',
+  'card_only_fallback',
+  'raw_phone_present',
+  'valid_phone_kept',
+  'phone_dropped_hygiene',
+  'with_whatsapp',
+  'with_landline',
+  'with_website',
+  'with_address',
+  'with_bairro',
+  'with_rating',
+];
+
+function createEmptyTelemetry() {
+  return {
+    received: 0,
+    detail_ok: 0,
+    card_only_fallback: 0,
+    raw_phone_present: 0,
+    valid_phone_kept: 0,
+    phone_dropped_hygiene: 0,
+    with_whatsapp: 0,
+    with_landline: 0,
+    with_website: 0,
+    with_address: 0,
+    with_bairro: 0,
+    with_rating: 0,
+    rates: {
+      detail_pct: 0,
+      phone_pct: 0,
+      whatsapp_pct: 0,
+      website_pct: 0,
+      address_pct: 0,
+    },
+    anomaly_warning: null,
+  };
+}
+
+function finalizeTelemetry(t) {
+  const rec = Number(t.received || 0);
+  const pct = (n) => (rec > 0 ? Math.round((Number(n || 0) / rec) * 100) : 0);
+  t.rates = {
+    detail_pct: pct(t.detail_ok),
+    phone_pct: pct(t.valid_phone_kept),
+    whatsapp_pct: pct(t.with_whatsapp),
+    website_pct: pct(t.with_website),
+    address_pct: pct(t.with_address),
+  };
+
+  if (rec >= 5 && t.raw_phone_present > 0 && t.valid_phone_kept === 0) {
+    t.anomaly_warning = 'ALERTA: telefones brutos vieram do Maps mas foram descartados na higienização.';
+  } else if (rec >= 5 && t.valid_phone_kept === 0) {
+    t.anomaly_warning = 'ALERTA: 0 telefones válidos capturados após 5+ cards — possível falha ao abrir painel de detalhes ou mudança de seletor do Google Maps.';
+  } else if (rec >= 5 && t.detail_ok === 0) {
+    t.anomaly_warning = 'ALERTA: nenhum painel de detalhes foi lido (100% fallback raso de card).';
+  } else {
+    t.anomaly_warning = null;
+  }
+  return t;
+}
+
 export function clearMissionsForTest() {
   missions.clear();
   activeMissionId = null;
@@ -107,6 +170,7 @@ export function createMission({
     duplicates: 0,
     invalid: 0,
     diagnosed_count: 0,
+    telemetry: createEmptyTelemetry(),
     matrix_summary: { OURO: 0, EXPANSAO: 0, ENTRADA: 0, OBSERVACAO: 0 },
     lead_ids_lote: [],
     lead_ids_acionaveis: [],
@@ -214,15 +278,24 @@ export function recordMissionBatch(missionId, batchResult = {}, progressInfo = {
     }
   }
 
+  if (!mission.telemetry) mission.telemetry = createEmptyTelemetry();
+  if (batchResult.telemetry && typeof batchResult.telemetry === 'object') {
+    for (const key of TELEMETRY_COUNTER_KEYS) {
+      mission.telemetry[key] = (mission.telemetry[key] || 0) + Number(batchResult.telemetry[key] || 0);
+    }
+  }
+  finalizeTelemetry(mission.telemetry);
+
   mission.updated_at = new Date().toISOString();
+  const telSummary = `tel=${mission.telemetry.valid_phone_kept} wa=${mission.telemetry.with_whatsapp} site=${mission.telemetry.with_website} detail=${mission.telemetry.detail_ok}/${mission.telemetry.received}`;
   pushLog(
     mission,
-    `Lote ingerido: +${batchResult.imported || 0} novos, +${batchResult.updated || 0} enriquecidos, +${batchResult.diagnosed_count || 0} diagnosticados`
+    `Lote ingerido: +${batchResult.imported || 0} novos, +${batchResult.updated || 0} enriquecidos, +${batchResult.diagnosed_count || 0} diagnosticados (${telSummary})`
   );
 
   logTerminal(
     'MAPS-INGEST',
-    `◀ id=${mission.id} batch(+${batchResult.imported || 0} novos, +${batchResult.updated || 0} upd, +${batchResult.duplicates || 0} dup, +${batchResult.diagnosed_count || 0} diag) total_lote=${mission.lead_ids_lote.length} OURO=${mission.matrix_summary.OURO}`,
+    `◀ id=${mission.id} batch(+${batchResult.imported || 0} novos, +${batchResult.updated || 0} upd, +${batchResult.duplicates || 0} dup, +${batchResult.diagnosed_count || 0} diag) total_lote=${mission.lead_ids_lote.length} OURO=${mission.matrix_summary.OURO} ${telSummary}`,
     silent
   );
   return mission;

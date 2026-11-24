@@ -163,29 +163,136 @@
     return match ? match[0].trim() : null;
   }
 
+  function extractStrictBrPhoneFromText(text) {
+    const match = String(text || '').match(/(?:\+?55\s*)?\(?\d{2}\)?\s*(?:9\s*)?\d{4}[-\s]?\d{4}/);
+    return match ? match[0].trim() : null;
+  }
+
+  function normMatchText(str) {
+    return String(str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function extractPlaceSlug(url) {
+    const m = String(url || '').match(/\/maps\/place\/([^/?#]+)/i);
+    return m ? m[1] : null;
+  }
+
+  function isNameMatch(headingText, expectedName) {
+    const hNorm = normMatchText(headingText);
+    const eNorm = normMatchText(expectedName);
+    if (!hNorm || !eNorm) return false;
+    return hNorm === eNorm || hNorm.includes(eNorm) || eNorm.includes(hNorm);
+  }
+
+  function findDetailPanel(expectedName = '') {
+    const candidates = Array.from(document.querySelectorAll('div[role="main"]'))
+      .map((el) => {
+        const heading = el.querySelector('h1');
+        const headingText = heading ? heading.textContent.trim() : '';
+        const hasFeed = Boolean(el.querySelector('div[role="feed"]'));
+        const hasActions = Boolean(el.querySelector('button[data-item-id], a[data-item-id]'));
+        return { el, headingText, hasFeed, hasActions };
+      })
+      .filter((c) => Boolean(c.headingText));
+
+    if (!candidates.length) return null;
+
+    if (expectedName) {
+      const exactNoFeed = candidates.find((c) => !c.hasFeed && isNameMatch(c.headingText, expectedName));
+      if (exactNoFeed) return exactNoFeed.el;
+      const exactWithActions = candidates.find((c) => c.hasActions && isNameMatch(c.headingText, expectedName));
+      if (exactWithActions) return exactWithActions.el;
+      const anyMatch = candidates.find((c) => isNameMatch(c.headingText, expectedName));
+      if (anyMatch) return anyMatch.el;
+    }
+
+    const noFeed = candidates.find((c) => !c.hasFeed);
+    if (noFeed) return noFeed.el;
+
+    const nonFeedWithActions = candidates.find((c) => c.hasActions && !c.hasFeed);
+    return nonFeedWithActions ? nonFeedWithActions.el : null;
+  }
+
+  async function waitForDetailPanel(expectedName, expectedUrl, isAbortedFn, timeoutMs = 4500) {
+    const start = Date.now();
+    const slug = extractPlaceSlug(expectedUrl);
+    let bestPanel = null;
+
+    while (Date.now() - start < timeoutMs) {
+      if (typeof isAbortedFn === 'function' && isAbortedFn()) {
+        return { panelEl: bestPanel, panelFound: Boolean(bestPanel) };
+      }
+
+      const panelEl = findDetailPanel(expectedName);
+      if (panelEl) {
+        bestPanel = panelEl;
+        const h1Text = panelEl.querySelector('h1')?.textContent?.trim() || '';
+        const nameOk = expectedName ? isNameMatch(h1Text, expectedName) : true;
+        const urlOk = slug ? String(window.location.href || '').includes(slug) : false;
+        const hasActionButtons = Boolean(panelEl.querySelector('button[data-item-id], a[data-item-id]'));
+        if ((nameOk || urlOk) && hasActionButtons) {
+          return { panelEl, panelFound: true };
+        }
+      }
+
+      await sleep(180);
+    }
+
+    return { panelEl: bestPanel, panelFound: Boolean(bestPanel) };
+  }
+
   function getSearchQuery() {
     const input = document.querySelector('#searchboxinput') || document.querySelector('input[name="q"]');
     return input ? input.value : '';
   }
 
-  function extractFromDetailPanel(searchQuery) {
-    const main = document.querySelector('div[role="main"]');
+  function extractFromDetailPanel(searchQuery, explicitPanel = null) {
+    const main = explicitPanel || findDetailPanel();
     if (!main) return null;
 
     const heading = main.querySelector('h1');
     const nome = heading ? heading.textContent.trim() : '';
     if (!nome) return null;
 
-    const telLink = main.querySelector('a[href^="tel:"]');
-    const phoneBtn = main.querySelector('button[data-item-id^="phone:"]');
-    const rawPhone = telLink
-      ? telLink.getAttribute('href').replace(/^tel:/i, '').trim()
-      : (phoneBtn ? (phoneBtn.getAttribute('aria-label') || phoneBtn.textContent || '').replace(/^Telefone:\s*/i, '').trim() : null);
+    let rawPhone = null;
+    const phoneTelItemBtn = main.querySelector('button[data-item-id^="phone:tel:"]');
+    if (phoneTelItemBtn) {
+      const idAttr = phoneTelItemBtn.getAttribute('data-item-id') || '';
+      const fromId = idAttr.replace(/^phone:tel:/i, '').trim();
+      rawPhone = fromId || extractPhoneFromText(phoneTelItemBtn.getAttribute('aria-label') || phoneTelItemBtn.textContent || '');
+    }
+
+    if (!rawPhone) {
+      const telLink = main.querySelector('a[href^="tel:"]');
+      if (telLink) {
+        rawPhone = String(telLink.getAttribute('href') || '').replace(/^tel:/i, '').trim();
+      }
+    }
+
+    if (!rawPhone) {
+      const phoneFallbackBtn = main.querySelector('button[data-item-id^="phone:"], button[aria-label*="Telefone" i], button[aria-label*="Phone" i]');
+      if (phoneFallbackBtn) {
+        const lbl = phoneFallbackBtn.getAttribute('aria-label') || phoneFallbackBtn.textContent || '';
+        rawPhone = extractPhoneFromText(lbl);
+      }
+    }
+
+    if (!rawPhone) {
+      const panelText = main.innerText || main.textContent || '';
+      rawPhone = extractStrictBrPhoneFromText(panelText);
+    }
 
     const addrBtn = main.querySelector('button[data-item-id="address"]');
     const rawAddr = addrBtn ? (addrBtn.getAttribute('aria-label') || addrBtn.textContent || '') : '';
 
-    const webLink = main.querySelector('a[data-item-id="authority"]');
+    const webLink =
+      main.querySelector('a[data-item-id="authority"]')
+      || main.querySelector('a[aria-label*="Website" i], a[aria-label*="Site" i]');
     const website = webLink ? cleanWebsiteUrl(webLink.getAttribute('href')) : null;
 
     const catBtn = main.querySelector('button[jsaction*="category"]') || main.querySelector('button.DkEaL');
@@ -452,6 +559,7 @@
       <div id="autonomiaHudQuery" style="color:#94a3b8;font-size:11px;margin-bottom:6px"></div>
       <div id="autonomiaHudPhase" style="font-weight:700;color:#fff">⏳ Preparando lista do Google Maps...</div>
       <div id="autonomiaHudStats" style="color:#38bdf8;margin-top:4px;font-size:11px"></div>
+      <div id="autonomiaHudAlert" style="display:none;margin-top:6px;padding:6px 8px;border-radius:8px;background:rgba(245,158,11,0.18);border:1px solid #f59e0b;color:#fde68a;font-size:11px;font-weight:700"></div>
     `;
 
     document.body.appendChild(hud);
@@ -460,14 +568,24 @@
     hud.querySelector('#autonomiaHudStop')?.addEventListener('click', onStopClick);
 
     return {
-      setStatus(phaseText, statsText = '') {
+      setStatus(phaseText, statsText = '', alertText = '') {
         const p = hud.querySelector('#autonomiaHudPhase');
         const s = hud.querySelector('#autonomiaHudStats');
+        const a = hud.querySelector('#autonomiaHudAlert');
         if (p) p.textContent = phaseText;
         if (s) s.textContent = statsText;
+        if (a) {
+          if (alertText) {
+            a.style.display = 'block';
+            a.textContent = alertText;
+          } else {
+            a.style.display = 'none';
+            a.textContent = '';
+          }
+        }
       },
-      finish(finalText, statsText = '') {
-        this.setStatus(finalText, statsText);
+      finish(finalText, statsText = '', alertText = '') {
+        this.setStatus(finalText, statsText, alertText);
         const btn = hud.querySelector('#autonomiaHudStop');
         if (btn) {
           btn.textContent = 'Fechar';
@@ -572,6 +690,10 @@
     let batchBuffer = [];
     let capturedCount = 0;
     let sentCount = 0;
+    let telCount = 0;
+    let waCount = 0;
+    let siteCount = 0;
+    let detailCount = 0;
 
     const flushBuffer = async () => {
       if (!batchBuffer.length) return;
@@ -619,12 +741,26 @@
         // Ignora erro de clique pontual
       }
 
-      await interruptibleSleep(randomClickDelay(), () => stopped);
+      const { panelEl, panelFound } = await waitForDetailPanel(target.name, target.url, () => stopped, 4500);
       if (stopped) break;
 
-      const detail = extractFromDetailPanel(searchQuery);
+      await interruptibleSleep(Math.max(400, Math.round(randomClickDelay() * 0.4)), () => stopped);
+      if (stopped) break;
+
+      const detail = extractFromDetailPanel(searchQuery, panelEl);
+      const targetSlug = extractPlaceSlug(target.url);
+      const detailSlug = extractPlaceSlug(detail?.fonte_url);
+      const detailMatches = Boolean(
+        detail
+        && (
+          (detailSlug && targetSlug && detailSlug === targetSlug)
+          || detail.fonte_url === target.url
+          || isNameMatch(detail.nome_fantasia, target.name)
+        )
+      );
+
       let finalLead = cardLead;
-      if (detail && (detail.fonte_url === target.url || detail.nome_fantasia.toLowerCase() === target.name.toLowerCase())) {
+      if (detailMatches) {
         finalLead = {
           ...(cardLead || {}),
           ...Object.fromEntries(Object.entries(detail).filter(([, v]) => v !== null && v !== undefined && v !== '')),
@@ -637,29 +773,52 @@
           finalLead.cidade = mission.cidade;
           finalLead.uf = mission.uf;
         }
+        finalLead._capture_meta = {
+          source: detailMatches ? 'detail' : 'card_only',
+          panel_found: Boolean(panelFound),
+          raw_phone_found: Boolean(finalLead.telefone || finalLead.whatsapp),
+          raw_website_found: Boolean(finalLead.website),
+        };
+        if (finalLead.telefone || finalLead.whatsapp) telCount++;
+        if (finalLead.whatsapp) waCount++;
+        if (finalLead.website) siteCount++;
+        if (detailMatches) detailCount++;
+
         const merged = mergeIntoSession(finalLead);
         batchBuffer.push(merged);
       }
 
       capturedCount = i + 1;
+      const telemetryLine = `📞 Tel: ${telCount} | 💬 WA: ${waCount} | 🌐 Site: ${siteCount} | Detalhe: ${detailCount}/${capturedCount}`;
+      const zeroTelAlert = capturedCount >= 5 && telCount === 0
+        ? '⚠️ Alerta: 0 telefones nos últimos cards (verifique se o painel de detalhes está abrindo)'
+        : '';
+
       hud.setStatus(
         `🔍 Capturando ${capturedCount}/${totalToCapture} • Enviados: ${sentCount}`,
-        finalLead?.nome_fantasia ? `Atual: ${finalLead.nome_fantasia}${finalLead.telefone ? ' 📞' : ''}` : ''
+        `${finalLead?.nome_fantasia ? `Atual: ${finalLead.nome_fantasia} • ` : ''}${telemetryLine}`,
+        zeroTelAlert
       );
 
       if (batchBuffer.length >= 5) {
         await flushBuffer();
         hud.setStatus(
           `🔍 Capturando ${capturedCount}/${totalToCapture} • Enviados: ${sentCount}`,
-          'Lote enviado com Raio-X + Matriz ao vivo'
+          telemetryLine,
+          zeroTelAlert
         );
       }
     }
 
     await flushBuffer();
 
+    const finalTelemetryLine = `📞 Tel: ${telCount} | 💬 WA: ${waCount} | 🌐 Site: ${siteCount} | Detalhe: ${detailCount}/${capturedCount} • Enviados: ${sentCount}`;
+    const finalZeroTelAlert = capturedCount >= 5 && telCount === 0
+      ? '⚠️ Alerta: 0 telefones nos últimos cards (verifique se o painel de detalhes está abrindo)'
+      : '';
+
     if (stopped) {
-      hud.finish(`⏹️ Parado (${capturedCount}/${totalToCapture} capturados · ${sentCount} enviados)`);
+      hud.finish(`⏹️ Parado (${capturedCount}/${totalToCapture} capturados · ${sentCount} enviados)`, finalTelemetryLine, finalZeroTelAlert);
     } else {
       await bgMissionMsg({
         type: 'COMPLETE_MISSION',
@@ -670,7 +829,7 @@
           reached_end: true,
         },
       });
-      hud.finish(`✅ Lista inteira capturada! (${capturedCount} estabelecimentos)`, `Total enviados ao Caça Leads: ${sentCount}`);
+      hud.finish(`✅ Lista inteira capturada! (${capturedCount} estabelecimentos)`, finalTelemetryLine, finalZeroTelAlert);
     }
 
     activeMissionRunnerId = null;
@@ -776,12 +935,25 @@
         }
       } catch {}
 
-      await interruptibleSleep(randomClickDelay(), () => deepCaptureAborted);
+      const { panelEl, panelFound } = await waitForDetailPanel(target.name, target.url, () => deepCaptureAborted, 4500);
       if (deepCaptureAborted) break;
 
-      const detail = extractFromDetailPanel(searchQuery);
+      await interruptibleSleep(Math.max(400, Math.round(randomClickDelay() * 0.4)), () => deepCaptureAborted);
+      if (deepCaptureAborted) break;
+
+      const detail = extractFromDetailPanel(searchQuery, panelEl);
+      const targetSlug = extractPlaceSlug(target.url);
+      const detailSlug = extractPlaceSlug(detail?.fonte_url);
+      const detailMatches = Boolean(
+        detail
+        && (
+          (detailSlug && targetSlug && detailSlug === targetSlug)
+          || detail.fonte_url === target.url
+          || isNameMatch(detail.nome_fantasia, target.name)
+        )
+      );
       let finalLead = cardLead;
-      if (detail && (detail.fonte_url === target.url || detail.nome_fantasia.toLowerCase() === target.name.toLowerCase())) {
+      if (detailMatches) {
         finalLead = {
           ...(cardLead || {}),
           ...Object.fromEntries(Object.entries(detail).filter(([, v]) => v !== null && v !== undefined && v !== '')),
@@ -790,6 +962,12 @@
       }
 
       if (finalLead) {
+        finalLead._capture_meta = {
+          source: detailMatches ? 'detail' : 'card_only',
+          panel_found: Boolean(panelFound),
+          raw_phone_found: Boolean(finalLead.telefone || finalLead.whatsapp),
+          raw_website_found: Boolean(finalLead.website),
+        };
         const merged = mergeIntoSession(finalLead);
         processed++;
         try {

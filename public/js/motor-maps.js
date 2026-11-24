@@ -123,9 +123,38 @@
       : (m.phase === 'COMPLETED' ? 100 : 0);
 
     const recentLogs = (m.logs || []).slice(-6).reverse();
+    const tel = m.telemetry || null;
+    const rates = tel?.rates || {};
+    const anomalyHtml = tel?.anomaly_warning
+      ? `<div class="mission-anomaly-banner" role="alert">⚠️ ${window.esc(tel.anomaly_warning)}</div>`
+      : '';
+    const telemetryHtml = tel
+      ? `
+        <div class="mission-telemetry-box">
+          <div style="font-size:12px;font-weight:700;margin-bottom:8px;color:var(--cyan)">📊 Telemetria de Extração (Qualidade do Lote)</div>
+          <div class="mission-telemetry-grid">
+            <div class="mission-telemetry-item">
+              <span class="muted">Painel Detalhe</span>
+              <strong>${tel.detail_ok || 0} / ${tel.received || 0} (${rates.detail_pct || 0}%)</strong>
+              <small class="muted">Fallback Card: ${tel.card_only_fallback || 0}</small>
+            </div>
+            <div class="mission-telemetry-item">
+              <span class="muted">Telefones Válidos</span>
+              <strong>${tel.valid_phone_kept || 0} (${rates.phone_pct || 0}%)</strong>
+              <small class="muted">💬 Cel/WA: ${tel.with_whatsapp || 0} · ☎️ Fixo: ${tel.with_landline || 0}${tel.phone_dropped_hygiene > 0 ? ` · <span style="color:#fbbf24">⚠️ ${tel.phone_dropped_hygiene} descartados na higiene</span>` : ''}</small>
+            </div>
+            <div class="mission-telemetry-item">
+              <span class="muted">Completude Digital & Local</span>
+              <strong>🌐 Site: ${tel.with_website || 0} (${rates.website_pct || 0}%)</strong>
+              <small class="muted">📍 Endereço: ${tel.with_address || 0} (${rates.address_pct || 0}%) · Bairro: ${tel.with_bairro || 0} · ⭐ Nota: ${tel.with_rating || 0}</small>
+            </div>
+          </div>
+        </div>`
+      : '';
 
     return `
       <div class="panel mission-monitor ${isRunning ? 'running' : ''}">
+        ${anomalyHtml}
         <div class="agenda-header">
           <div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -166,6 +195,8 @@
           <span class="mx-pill brecha">🎯 ENTRADA: ${mx.ENTRADA || 0}</span>
           <span class="badge">👀 OBSERVAÇÃO: ${mx.OBSERVACAO || 0}</span>
         </div>
+
+        ${telemetryHtml}
 
         ${recentLogs.length ? `
           <div class="mission-log-box">

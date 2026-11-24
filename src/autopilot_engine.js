@@ -12,8 +12,9 @@ const DEFAULT_CONCURRENCY = 3;
 
 export function hygienizeMapsLead(raw, { defaultSegment = null, loteOrigem = null } = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
-  const rawTel = raw.telefone || raw.phone || '';
-  const rawWa = raw.whatsapp || '';
+  const { _capture_meta: _ignoredCaptureMeta, ...cleanRaw } = raw;
+  const rawTel = cleanRaw.telefone || cleanRaw.phone || '';
+  const rawWa = cleanRaw.whatsapp || '';
   const telNorm = normalizePhone(rawTel);
   const waNorm = normalizePhone(rawWa);
 
@@ -24,32 +25,84 @@ export function hygienizeMapsLead(raw, { defaultSegment = null, loteOrigem = nul
   const telefone = rawTel || rawWa || null;
   const telefoneTipo = waNorm.valido ? waNorm.tipo : (telNorm.valido ? telNorm.tipo : 'DESCONHECIDO');
 
-  const cnpjCheck = raw.cnpj ? validateCNPJ(raw.cnpj) : null;
-  const cnpj = cnpjCheck?.valido ? cnpjCheck.formatted : (raw.cnpj || null);
+  const cnpjCheck = cleanRaw.cnpj ? validateCNPJ(cleanRaw.cnpj) : null;
+  const cnpj = cnpjCheck?.valido ? cnpjCheck.formatted : (cleanRaw.cnpj || null);
 
-  const mappedSeg = mapCategoryToSegment(raw.categoria_raw, raw.segmento, SEGMENTS);
+  const mappedSeg = mapCategoryToSegment(cleanRaw.categoria_raw, cleanRaw.segmento, SEGMENTS);
   const segmento = mappedSeg !== 'OUTRO'
     ? mappedSeg
     : (defaultSegment && SEGMENTS.includes(defaultSegment) ? defaultSegment : 'OUTRO');
 
   const hasPhone = Boolean(telNorm.valido || waNorm.valido);
   const hasWa = Boolean(waNorm.valido ? waNorm.whatsapp_provavel : telNorm.whatsapp_provavel);
-  const potencial = POTENTIALS.includes(raw.potencial)
-    ? raw.potencial
-    : (hasWa && raw.website && raw.endereco ? 'ALTO' : (hasPhone || raw.website ? 'MEDIO' : 'BAIXO'));
+  const potencial = POTENTIALS.includes(cleanRaw.potencial)
+    ? cleanRaw.potencial
+    : (hasWa && cleanRaw.website && cleanRaw.endereco ? 'ALTO' : (hasPhone || cleanRaw.website ? 'MEDIO' : 'BAIXO'));
 
   return {
-    ...raw,
+    ...cleanRaw,
     segmento,
     telefone,
     whatsapp,
     telefone_tipo: telefoneTipo,
     cnpj,
     potencial,
-    lote_origem: raw.lote_origem || loteOrigem || null,
-    fonte: raw.fonte || 'Google Maps (Captura Assistida)',
-    fonte_tipo: raw.fonte_tipo || 'MAPS',
+    lote_origem: cleanRaw.lote_origem || loteOrigem || null,
+    fonte: cleanRaw.fonte || 'Google Maps (Captura Assistida)',
+    fonte_tipo: cleanRaw.fonte_tipo || 'MAPS',
   };
+}
+
+export function computeBatchTelemetry(rawList = []) {
+  const list = Array.isArray(rawList) ? rawList : [];
+  const telemetry = {
+    received: list.length,
+    detail_ok: 0,
+    card_only_fallback: 0,
+    raw_phone_present: 0,
+    valid_phone_kept: 0,
+    phone_dropped_hygiene: 0,
+    with_whatsapp: 0,
+    with_landline: 0,
+    with_website: 0,
+    with_address: 0,
+    with_bairro: 0,
+    with_rating: 0,
+  };
+
+  for (const raw of list) {
+    if (!raw || typeof raw !== 'object') continue;
+    if (raw._capture_meta?.source === 'detail') telemetry.detail_ok++;
+    else telemetry.card_only_fallback++;
+
+    const rawTel = String(raw.telefone || raw.phone || '').trim();
+    const rawWa = String(raw.whatsapp || '').trim();
+    const hadRawPhone = Boolean(rawTel || rawWa);
+    if (hadRawPhone) telemetry.raw_phone_present++;
+
+    const telNorm = normalizePhone(rawTel);
+    const waNorm = normalizePhone(rawWa);
+    const validPhone = Boolean(telNorm.valido || waNorm.valido);
+
+    if (validPhone) {
+      telemetry.valid_phone_kept++;
+      const hasWa = Boolean((waNorm.valido && waNorm.whatsapp_provavel) || (telNorm.valido && telNorm.whatsapp_provavel));
+      if (hasWa) {
+        telemetry.with_whatsapp++;
+      } else if ((waNorm.valido && waNorm.tipo === 'FIXO') || (telNorm.valido && telNorm.tipo === 'FIXO')) {
+        telemetry.with_landline++;
+      }
+    } else if (hadRawPhone) {
+      telemetry.phone_dropped_hygiene++;
+    }
+
+    if (String(raw.website || '').trim()) telemetry.with_website++;
+    if (String(raw.endereco || raw.address || '').trim()) telemetry.with_address++;
+    if (String(raw.bairro || '').trim()) telemetry.with_bairro++;
+    if (raw.avaliacao != null && Number.isFinite(Number(raw.avaliacao))) telemetry.with_rating++;
+  }
+
+  return telemetry;
 }
 
 /**
@@ -117,6 +170,7 @@ export async function ingestAndEnrichMapsBatch(rawLeads, options = {}) {
   } = options;
 
   const list = Array.isArray(rawLeads) ? rawLeads : [];
+  const telemetry = computeBatchTelemetry(list);
   const sanitized = list.map((item) => hygienizeMapsLead(item, { defaultSegment, loteOrigem }));
   const result = importRows(sanitized, { allowDuplicates: false, batchPrefix: 'MAPS' });
 
@@ -166,6 +220,7 @@ export async function ingestAndEnrichMapsBatch(rawLeads, options = {}) {
     invalid: result.invalid,
     total: result.total,
     diagnosed_count,
+    telemetry,
     matrix_summary,
     lead_ids_lote,
     lead_ids_acionaveis: actionableScored.map((x) => x.id),
